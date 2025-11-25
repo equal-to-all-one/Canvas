@@ -21,8 +21,8 @@ export function useCanvasRenderer(canvasContainer: Ref<HTMLDivElement | null>): 
       
       // Wait for the app to be created
       await app.value.init({
-        background: '#1099bb',
-        resizeTo: canvasContainer.value,
+        background: '#1a1a1a',
+        resizeTo: window,
       });
 
       // The application will create a canvas element for you that you
