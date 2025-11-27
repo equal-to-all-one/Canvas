@@ -3,12 +3,17 @@ import { ref, watch } from 'vue';
 import { Graphics } from 'pixi.js';
 import { useCanvasRenderer } from '@/composables/useCanvasRenderer';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { screenToWorld } from '@/utils/coordinates';
 
 const canvasContainer = ref<HTMLDivElement | null>(null);
 const canvasStore = useCanvasStore();
 
 // Initialize the PixiJS renderer
 const { app } = useCanvasRenderer(canvasContainer);
+
+// Panning state
+const isPanning = ref(false);
+const lastPanPoint = ref({ x: 0, y: 0 });
 
 const renderElements = () => {
   if (!app.value) return;
@@ -74,6 +79,60 @@ const addRandomRect = () => {
     opacity: 1,
   });
 };
+
+const handleWheel = (event: WheelEvent) => {
+  if (!app.value) return;
+  event.preventDefault();
+
+  const scaleFactor = event.deltaY > 0 ? 0.9 : 1.1;
+  let newScale = app.value.stage.scale.x * scaleFactor;
+
+  // Clamp scale
+  newScale = Math.max(0.1, Math.min(newScale, 5));
+
+  // Calculate the world position of the mouse before scaling
+  const worldPos = screenToWorld({ x: event.clientX, y: event.clientY }, app.value.stage);
+
+  // Update scale
+  app.value.stage.scale.set(newScale);
+
+  // Adjust position to keep the world point under the mouse
+  const newStageX = event.clientX - worldPos.x * newScale;
+  const newStageY = event.clientY - worldPos.y * newScale;
+
+  app.value.stage.position.set(newStageX, newStageY);
+
+  // Sync to store
+  canvasStore.setZoom(newScale);
+  canvasStore.setPan({ x: newStageX, y: newStageY });
+};
+
+const handlePointerDown = (event: PointerEvent) => {
+  if (event.button === 1) { // Middle mouse button
+    isPanning.value = true;
+    lastPanPoint.value = { x: event.clientX, y: event.clientY };
+    event.preventDefault();
+  }
+};
+
+const handlePointerMove = (event: PointerEvent) => {
+  if (isPanning.value && app.value) {
+    const dx = event.clientX - lastPanPoint.value.x;
+    const dy = event.clientY - lastPanPoint.value.y;
+
+    app.value.stage.position.x += dx;
+    app.value.stage.position.y += dy;
+
+    lastPanPoint.value = { x: event.clientX, y: event.clientY };
+
+    // Sync to store
+    canvasStore.setPan({ x: app.value.stage.position.x, y: app.value.stage.position.y });
+  }
+};
+
+const handlePointerUp = () => {
+  isPanning.value = false;
+};
 </script>
 
 <template>
@@ -81,7 +140,15 @@ const addRandomRect = () => {
     <div class="toolbar">
       <button @click="addRandomRect">Add Random Rect</button>
     </div>
-    <div ref="canvasContainer" class="canvas-board"></div>
+    <div 
+      ref="canvasContainer" 
+      class="canvas-board"
+      @wheel="handleWheel"
+      @pointerdown="handlePointerDown"
+      @pointermove="handlePointerMove"
+      @pointerup="handlePointerUp"
+      @pointerleave="handlePointerUp"
+    ></div>
   </div>
 </template>
 
