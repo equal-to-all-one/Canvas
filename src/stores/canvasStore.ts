@@ -13,6 +13,7 @@ interface CanvasState {
   selectedElementIds: string[];
   zoom: number;
   pan: { x: number; y: number };
+  activeTool: 'select' | 'rectangle';
 }
 
 export const useCanvasStore = defineStore('canvas', {
@@ -21,9 +22,14 @@ export const useCanvasStore = defineStore('canvas', {
     selectedElementIds: [],
     zoom: 1,
     pan: { x: 0, y: 0 },
+    activeTool: 'select',
   }),
 
   actions: {
+    setActiveTool(tool: 'select' | 'rectangle') {
+      this.activeTool = tool;
+    },
+
     /**
      * Adds a new element to the canvas.
      * Generates a unique ID for the element.

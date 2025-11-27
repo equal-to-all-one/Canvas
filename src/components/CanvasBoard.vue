@@ -20,6 +20,24 @@ const isDraggingElement = ref(false);
 const draggedElementId = ref<string | null>(null);
 const dragStartWorldPointOffset = ref({ x: 0, y: 0 });
 
+// Creation state
+const isCreating = ref(false);
+const creationStartPoint = ref({ x: 0, y: 0 });
+let ghostGraphic: Graphics | null = null;
+
+// Watch active tool to update cursor
+watch(
+  () => canvasStore.activeTool,
+  (newTool) => {
+    if (!app.value) return;
+    if (newTool === 'rectangle') {
+      app.value.canvas.style.cursor = 'crosshair';
+    } else {
+      app.value.canvas.style.cursor = 'default';
+    }
+  }
+);
+
 const renderElements = () => {
   if (!app.value) return;
 
@@ -34,6 +52,24 @@ const renderElements = () => {
   // Ensure stage is interactive for hit testing if we wanted to use stage.on('pointerdown')
   app.value.stage.eventMode = 'static';
   app.value.stage.hitArea = app.value.screen; // Make the whole screen interactive
+
+  // Handle stage pointer down for creation
+  app.value.stage.off('pointerdown'); // Remove previous listeners to avoid duplicates if re-rendering
+  app.value.stage.on('pointerdown', (e) => {
+    if (canvasStore.activeTool === 'rectangle') {
+      e.stopPropagation();
+      isCreating.value = true;
+      
+      if (app.value) {
+        const worldPos = screenToWorld({ x: e.global.x, y: e.global.y }, app.value.stage);
+        creationStartPoint.value = worldPos;
+
+        ghostGraphic = new Graphics();
+        app.value.stage.addChild(ghostGraphic);
+      }
+      return;
+    }
+  });
 
   // Re-draw all elements
   canvasStore.elements.forEach((element) => {
@@ -62,6 +98,8 @@ const renderElements = () => {
       graphics.cursor = 'pointer';
       
       graphics.on('pointerdown', (e) => {
+        if (canvasStore.activeTool === 'rectangle') return; // Do not select when creating
+
         e.stopPropagation(); // Prevent stage pan
         
         // Select element
@@ -206,7 +244,21 @@ const handlePointerDown = (event: PointerEvent) => {
 };
 
 const handlePointerMove = (event: PointerEvent) => {
-  if (isPanning.value && app.value) {
+  if (isCreating.value && app.value && ghostGraphic) {
+    const currentWorldPoint = screenToWorld({ x: event.clientX, y: event.clientY }, app.value.stage);
+    
+    const rectX = Math.min(creationStartPoint.value.x, currentWorldPoint.x);
+    const rectY = Math.min(creationStartPoint.value.y, currentWorldPoint.y);
+    const rectW = Math.abs(currentWorldPoint.x - creationStartPoint.value.x);
+    const rectH = Math.abs(currentWorldPoint.y - creationStartPoint.value.y);
+
+    ghostGraphic.clear();
+    // PixiJS v8 syntax
+    ghostGraphic.rect(rectX, rectY, rectW, rectH);
+    ghostGraphic.fill({ color: 0x0000FF, alpha: 0.1 });
+    ghostGraphic.stroke({ width: 1, color: 0x0000FF, alpha: 0.5 });
+
+  } else if (isPanning.value && app.value) {
     const dx = event.clientX - lastPanPoint.value.x;
     const dy = event.clientY - lastPanPoint.value.y;
 
@@ -227,7 +279,40 @@ const handlePointerMove = (event: PointerEvent) => {
   }
 };
 
-const handlePointerUp = () => {
+const handlePointerUp = (event: PointerEvent) => {
+  if (isCreating.value && app.value && ghostGraphic) {
+    isCreating.value = false;
+    
+    const currentWorldPoint = screenToWorld({ x: event.clientX, y: event.clientY }, app.value.stage);
+    
+    const rectX = Math.min(creationStartPoint.value.x, currentWorldPoint.x);
+    const rectY = Math.min(creationStartPoint.value.y, currentWorldPoint.y);
+    const rectW = Math.abs(currentWorldPoint.x - creationStartPoint.value.x);
+    const rectH = Math.abs(currentWorldPoint.y - creationStartPoint.value.y);
+
+    if (rectW > 5 && rectH > 5) {
+      canvasStore.addElement({
+        type: 'rectangle',
+        x: rectX,
+        y: rectY,
+        width: rectW,
+        height: rectH,
+        rotation: 0,
+        fillColor: '#0000FF', // Default blue for new rects
+        strokeColor: '#000000',
+        strokeWidth: 2,
+        opacity: 1,
+        isSelected: false,
+      });
+    }
+
+    app.value.stage.removeChild(ghostGraphic);
+    ghostGraphic.destroy();
+    ghostGraphic = null;
+    
+    canvasStore.setActiveTool('select');
+  }
+
   isPanning.value = false;
   isDraggingElement.value = false;
   draggedElementId.value = null;
