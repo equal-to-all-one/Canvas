@@ -33,6 +33,7 @@ export const useCanvasStore = defineStore('canvas', {
       const newElement: CanvasElement = {
         ...element,
         id: uuidv4(),
+        isSelected: false,
       };
       this.elements.push(newElement);
     },
@@ -56,6 +57,27 @@ export const useCanvasStore = defineStore('canvas', {
 
     setPan(newPan: { x: number; y: number }) {
       this.pan = newPan;
+    },
+
+    selectElement(id: string) {
+      this.elements.forEach((el) => {
+        el.isSelected = el.id === id;
+      });
+      this.selectedElementIds = [id];
+    },
+
+    deselectAllElements() {
+      this.elements.forEach((el) => {
+        el.isSelected = false;
+      });
+      this.selectedElementIds = [];
+    },
+
+    updateElementTransform(id: string, updates: Partial<CanvasElement>) {
+      const element = this.elements.find((el) => el.id === id);
+      if (element) {
+        Object.assign(element, updates);
+      }
     },
   },
 

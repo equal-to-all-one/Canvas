@@ -14,7 +14,7 @@ export interface BaseElement {
   width: number;
   height: number;
   rotation: number; // In radians
-  isSelected?: boolean; // UI state, managed by store or component
+  isSelected: boolean; // UI state, managed by store or component
 }
 
 export interface ShapeStyle {
