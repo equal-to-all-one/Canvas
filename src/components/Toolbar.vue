@@ -1,7 +1,89 @@
 <script setup lang="ts">
+import { ref, computed } from 'vue';
 import { useCanvasStore } from '@/stores/canvasStore';
+import type { ImageElement } from '@/types/element';
 
 const store = useCanvasStore();
+const fileInput = ref<HTMLInputElement | null>(null);
+
+const handleAddImage = () => {
+  fileInput.value?.click();
+};
+
+const handleFileChange = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  
+  if (file) {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        const dataUrl = reader.result;
+        console.log('[DEBUG-2] FileReader 完成...', dataUrl.substring(0, 100));
+
+        // Create an image object to get dimensions
+        const img = new Image();
+        img.onload = () => {
+            const naturalWidth = img.naturalWidth;
+            const naturalHeight = img.naturalHeight;
+            
+            // Calculate dimensions preserving aspect ratio
+            // Default max size of 400px
+            const maxSize = 400;
+            let width = naturalWidth;
+            let height = naturalHeight;
+            
+            if (width > maxSize || height > maxSize) {
+                const ratio = width / height;
+                if (width > height) {
+                    width = maxSize;
+                    height = width / ratio;
+                } else {
+                    height = maxSize;
+                    width = height * ratio;
+                }
+            }
+
+            const newImageElement = {
+                type: 'image' as const,
+                src: dataUrl,
+                x: 100,
+                y: 100,
+                width: width,
+                height: height,
+                rotation: 0,
+                isSelected: false,
+                filters: { grayscale: false, blur: 0, brightness: 1 }
+            };
+
+            console.log('[DEBUG-3] 准备添加到 store 的新图片元素:', newImageElement);
+            store.addElement(newImageElement);
+        };
+        img.src = dataUrl;
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+  
+  // Reset input so the same file can be selected again
+  if (target) {
+    target.value = '';
+  }
+};
+
+const selectedImage = computed<ImageElement | null>(() => {
+  const selected = store.selectedElements[0];
+  if (store.selectedElements.length === 1 && selected && selected.type === 'image') {
+    return selected as ImageElement;
+  }
+  return null;
+});
+
+const updateFilter = (key: 'grayscale' | 'blur' | 'brightness', value: any) => {
+  if (selectedImage.value) {
+    store.updateImageFilters(selectedImage.value.id, { [key]: value });
+  }
+};
 </script>
 
 <template>
@@ -18,6 +100,70 @@ const store = useCanvasStore();
     >
       矩形
     </button>
+    <button 
+      :class="{ active: store.activeTool === 'circle' }"
+      @click="store.setActiveTool('circle')"
+    >
+      圆形
+    </button>
+    <button 
+      :class="{ active: store.activeTool === 'rounded-rectangle' }"
+      @click="store.setActiveTool('rounded-rectangle')"
+    >
+      圆角矩形
+    </button>
+    <button 
+      :class="{ active: store.activeTool === 'triangle' }"
+      @click="store.setActiveTool('triangle')"
+    >
+      三角形
+    </button>
+    <button @click="handleAddImage">
+      添加图片
+    </button>
+    <input 
+      ref="fileInput"
+      type="file" 
+      accept="image/png, image/jpeg" 
+      style="display: none" 
+      @change="handleFileChange"
+    >
+  </div>
+
+  <div v-if="selectedImage" class="filter-toolbar">
+    <h4>图片滤镜</h4>
+    <div class="filter-control">
+      <label>
+        <input 
+          type="checkbox" 
+          :checked="selectedImage.filters.grayscale"
+          @change="(e) => updateFilter('grayscale', (e.target as HTMLInputElement).checked)"
+        >
+        灰度
+      </label>
+    </div>
+    <div class="filter-control">
+      <label>模糊: {{ selectedImage.filters.blur }}</label>
+      <input 
+        type="range" 
+        min="0" 
+        max="20" 
+        step="1"
+        :value="selectedImage.filters.blur"
+        @input="(e) => updateFilter('blur', parseFloat((e.target as HTMLInputElement).value))"
+      >
+    </div>
+    <div class="filter-control">
+      <label>亮度: {{ selectedImage.filters.brightness }}</label>
+      <input 
+        type="range" 
+        min="0" 
+        max="2" 
+        step="0.1"
+        :value="selectedImage.filters.brightness"
+        @input="(e) => updateFilter('brightness', parseFloat((e.target as HTMLInputElement).value))"
+      >
+    </div>
   </div>
 </template>
 
@@ -34,6 +180,38 @@ const store = useCanvasStore();
   display: flex;
   gap: 8px;
   z-index: 1000;
+}
+
+.filter-toolbar {
+  position: fixed;
+  top: 70px;
+  right: 20px;
+  background: #fff;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+  z-index: 1000;
+  width: 200px;
+}
+
+.filter-toolbar h4 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  color: #333;
+}
+
+.filter-control {
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.filter-control label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 button {

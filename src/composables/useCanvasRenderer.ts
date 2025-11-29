@@ -13,17 +13,19 @@ export function useCanvasRenderer(canvasContainer: Ref<HTMLDivElement | null>): 
       // The application will create a renderer using WebGL, if possible,
       // with a fallback to a canvas render. It will also setup the ticker
       // and the root stage PIXI.Container
-      app.value = new Application();
+      const pixiApp = new Application();
       
       // Wait for the app to be created
-      await app.value.init({
+      await pixiApp.init({
         background: '#1a1a1a',
         resizeTo: window,
       });
 
       // The application will create a canvas element for you that you
       // can then insert into the DOM
-      canvasContainer.value.appendChild(app.value.canvas);
+      canvasContainer.value.appendChild(pixiApp.canvas);
+      
+      app.value = pixiApp;
     }
   });
 

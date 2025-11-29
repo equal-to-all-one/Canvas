@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { Graphics } from 'pixi.js';
+import { Graphics, Sprite, Texture, ColorMatrixFilter, BlurFilter, Filter, Assets } from 'pixi.js';
 import { useCanvasRenderer } from '@/composables/useCanvasRenderer';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { screenToWorld } from '@/utils/coordinates';
@@ -30,7 +30,7 @@ watch(
   () => canvasStore.activeTool,
   (newTool) => {
     if (!app.value) return;
-    if (newTool === 'rectangle') {
+    if (['rectangle', 'circle', 'rounded-rectangle', 'triangle'].includes(newTool)) {
       app.value.canvas.style.cursor = 'crosshair';
     } else {
       app.value.canvas.style.cursor = 'default';
@@ -56,7 +56,7 @@ const renderElements = () => {
   // Handle stage pointer down for creation
   app.value.stage.off('pointerdown'); // Remove previous listeners to avoid duplicates if re-rendering
   app.value.stage.on('pointerdown', (e) => {
-    if (canvasStore.activeTool === 'rectangle') {
+    if (['rectangle', 'circle', 'rounded-rectangle', 'triangle'].includes(canvasStore.activeTool)) {
       e.stopPropagation();
       isCreating.value = true;
       
@@ -73,7 +73,56 @@ const renderElements = () => {
 
   // Re-draw all elements
   canvasStore.elements.forEach((element) => {
-    if (element.type === 'rectangle') {
+    let displayObject: Graphics | Sprite;
+
+    if (element.type === 'image') {
+      if (!element.src) return;
+
+      // Check if asset is loaded
+      if (!Assets.cache.has(element.src)) {
+        console.log(`[DEBUG] Asset not in cache, loading: ${element.src.substring(0, 30)}...`);
+        Assets.load(element.src).then(() => {
+            console.log("[DEBUG] Asset loaded, triggering re-render");
+            renderElements();
+        }).catch(err => console.error("Failed to load texture:", err));
+        return; // Skip rendering this frame
+      }
+
+      const texture = Texture.from(element.src);
+      const sprite = new Sprite(texture);
+      
+      // console.log(`[DEBUG] Rendering image. Width: ${texture.width}`);
+
+      sprite.position.set(element.x, element.y);
+      sprite.rotation = element.rotation;
+
+      // Since we ensure asset is loaded, texture should have correct dimensions
+      sprite.width = element.width;
+      sprite.height = element.height;
+
+      // Apply filters
+      const pixiFilters: Filter[] = [];
+      
+      if (element.filters.brightness !== 1 || element.filters.grayscale) {
+        const colorMatrix = new ColorMatrixFilter();
+        if (element.filters.brightness !== 1) {
+          colorMatrix.brightness(element.filters.brightness, false);
+        }
+        if (element.filters.grayscale) {
+          colorMatrix.grayscale(1, false);
+        }
+        pixiFilters.push(colorMatrix);
+      }
+
+      if (element.filters.blur > 0) {
+        const blurFilter = new BlurFilter();
+        blurFilter.blur = element.filters.blur;
+        pixiFilters.push(blurFilter);
+      }
+
+      sprite.filters = pixiFilters;
+      displayObject = sprite;
+    } else {
       const graphics = new Graphics();
       
       // Set transform
@@ -81,45 +130,64 @@ const renderElements = () => {
       graphics.position.set(element.x, element.y);
       graphics.rotation = element.rotation;
 
-      // Draw rect
-      // PixiJS v8 syntax: rect -> fill -> stroke
-      graphics.rect(0, 0, element.width, element.height);
-      graphics.fill({ color: element.fillColor, alpha: element.opacity });
-      
+      // Draw shape based on type
+      if (element.type === 'rectangle') {
+        graphics.rect(0, 0, element.width, element.height);
+        graphics.fill({ color: element.fillColor, alpha: element.opacity });
+      } else if (element.type === 'circle') {
+        // Draw circle centered in the bounding box
+        const radius = element.width / 2;
+        graphics.circle(radius, radius, radius);
+        graphics.fill({ color: element.fillColor, alpha: element.opacity });
+      } else if (element.type === 'rounded-rectangle') {
+        graphics.roundRect(0, 0, element.width, element.height, element.borderRadius);
+        graphics.fill({ color: element.fillColor, alpha: element.opacity });
+      } else if (element.type === 'triangle') {
+        // Draw triangle
+        // Top center, Bottom left, Bottom right
+        const p1 = { x: element.width / 2, y: 0 };
+        const p2 = { x: 0, y: element.height };
+        const p3 = { x: element.width, y: element.height };
+        
+        graphics.poly([p1.x, p1.y, p2.x, p2.y, p3.x, p3.y]);
+        graphics.fill({ color: element.fillColor, alpha: element.opacity });
+      }
+        
       // Selection highlight
       if (element.isSelected) {
         graphics.stroke({ width: 4, color: '#00FFFF' }); // Cyan highlight
       } else {
         graphics.stroke({ width: element.strokeWidth, color: element.strokeColor });
       }
-
-      // Make interactive
-      graphics.eventMode = 'static'; // Replaces interactive = true in v7/v8
-      graphics.cursor = 'pointer';
-      
-      graphics.on('pointerdown', (e) => {
-        if (canvasStore.activeTool === 'rectangle') return; // Do not select when creating
-
-        e.stopPropagation(); // Prevent stage pan
-        
-        // Select element
-        canvasStore.selectElement(element.id);
-        
-        // Start dragging
-        if (app.value) {
-          isDraggingElement.value = true;
-          draggedElementId.value = element.id;
-          
-          const worldPos = screenToWorld({ x: e.global.x, y: e.global.y }, app.value.stage);
-          dragStartWorldPointOffset.value = {
-            x: worldPos.x - element.x,
-            y: worldPos.y - element.y
-          };
-        }
-      });
-
-      app.value?.stage.addChild(graphics);
+      displayObject = graphics;
     }
+
+    // Make interactive
+    displayObject.eventMode = 'static'; // Replaces interactive = true in v7/v8
+    displayObject.cursor = 'pointer';
+      
+    displayObject.on('pointerdown', (e) => {
+      if (['rectangle', 'circle', 'rounded-rectangle', 'triangle'].includes(canvasStore.activeTool)) return; // Do not select when creating
+
+      e.stopPropagation(); // Prevent stage pan
+        
+      // Select element
+      canvasStore.selectElement(element.id);
+        
+      // Start dragging
+      if (app.value) {
+        isDraggingElement.value = true;
+        draggedElementId.value = element.id;
+          
+        const worldPos = screenToWorld({ x: e.global.x, y: e.global.y }, app.value.stage);
+        dragStartWorldPointOffset.value = {
+          x: worldPos.x - element.x,
+          y: worldPos.y - element.y
+        };
+      }
+    });
+
+    app.value?.stage.addChild(displayObject);
   });
 };
 
@@ -253,8 +321,29 @@ const handlePointerMove = (event: PointerEvent) => {
     const rectH = Math.abs(currentWorldPoint.y - creationStartPoint.value.y);
 
     ghostGraphic.clear();
-    // PixiJS v8 syntax
-    ghostGraphic.rect(rectX, rectY, rectW, rectH);
+    
+    if (canvasStore.activeTool === 'rectangle') {
+      ghostGraphic.rect(rectX, rectY, rectW, rectH);
+    } else if (canvasStore.activeTool === 'circle') {
+      // Force circle to fit in the dragged area (using max dimension for diameter)
+      const diameter = Math.max(rectW, rectH);
+      // Draw circle centered in the bounding box defined by rectX, rectY and diameter
+      // Note: We are drawing a circle with top-left at rectX, rectY
+      const radius = diameter / 2;
+      ghostGraphic.circle(rectX + radius, rectY + radius, radius);
+    } else if (canvasStore.activeTool === 'rounded-rectangle') {
+      ghostGraphic.roundRect(rectX, rectY, rectW, rectH, 10); // Default radius 10
+    } else if (canvasStore.activeTool === 'triangle') {
+      // Draw triangle
+      // Top center, Bottom left, Bottom right
+      // Coordinates are relative to the bounding box top-left (rectX, rectY)
+      const p1 = { x: rectX + rectW / 2, y: rectY };
+      const p2 = { x: rectX, y: rectY + rectH };
+      const p3 = { x: rectX + rectW, y: rectY + rectH };
+      
+      ghostGraphic.poly([p1.x, p1.y, p2.x, p2.y, p3.x, p3.y]);
+    }
+
     ghostGraphic.fill({ color: 0x0000FF, alpha: 0.1 });
     ghostGraphic.stroke({ width: 1, color: 0x0000FF, alpha: 0.5 });
 
@@ -291,19 +380,65 @@ const handlePointerUp = (event: PointerEvent) => {
     const rectH = Math.abs(currentWorldPoint.y - creationStartPoint.value.y);
 
     if (rectW > 5 && rectH > 5) {
-      canvasStore.addElement({
-        type: 'rectangle',
-        x: rectX,
-        y: rectY,
-        width: rectW,
-        height: rectH,
-        rotation: 0,
-        fillColor: '#0000FF', // Default blue for new rects
-        strokeColor: '#000000',
-        strokeWidth: 2,
-        opacity: 1,
-        isSelected: false,
-      });
+      if (canvasStore.activeTool === 'rectangle') {
+        canvasStore.addElement({
+          type: 'rectangle',
+          x: rectX,
+          y: rectY,
+          width: rectW,
+          height: rectH,
+          rotation: 0,
+          fillColor: '#0000FF', // Default blue for new rects
+          strokeColor: '#000000',
+          strokeWidth: 2,
+          opacity: 1,
+          isSelected: false,
+        });
+      } else if (canvasStore.activeTool === 'circle') {
+        const diameter = Math.max(rectW, rectH);
+        canvasStore.addElement({
+          type: 'circle',
+          x: rectX,
+          y: rectY,
+          width: diameter,
+          height: diameter,
+          rotation: 0,
+          fillColor: '#00FF00', // Default green for new circles
+          strokeColor: '#000000',
+          strokeWidth: 2,
+          opacity: 1,
+          isSelected: false,
+        });
+      } else if (canvasStore.activeTool === 'rounded-rectangle') {
+        canvasStore.addElement({
+          type: 'rounded-rectangle',
+          x: rectX,
+          y: rectY,
+          width: rectW,
+          height: rectH,
+          rotation: 0,
+          fillColor: '#FFA500', // Orange
+          strokeColor: '#000000',
+          strokeWidth: 2,
+          opacity: 1,
+          borderRadius: 10,
+          isSelected: false,
+        });
+      } else if (canvasStore.activeTool === 'triangle') {
+        canvasStore.addElement({
+          type: 'triangle',
+          x: rectX,
+          y: rectY,
+          width: rectW,
+          height: rectH,
+          rotation: 0,
+          fillColor: '#800080', // Purple
+          strokeColor: '#000000',
+          strokeWidth: 2,
+          opacity: 1,
+          isSelected: false,
+        });
+      }
     }
 
     app.value.stage.removeChild(ghostGraphic);

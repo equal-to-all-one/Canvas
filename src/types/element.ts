@@ -4,34 +4,62 @@
  * All elements on the canvas must conform to these types.
  */
 
-export type ElementType = 'rectangle' | 'circle' | 'text' | 'image';
+export type ElementType = 'rectangle' | 'circle' | 'rounded-rectangle' | 'triangle' | 'image';
 
 export interface BaseElement {
   id: string;
-  type: ElementType;
-  x: number; // Absolute world coordinate
-  y: number; // Absolute world coordinate
+  x: number;
+  y: number;
   width: number;
   height: number;
-  rotation: number; // In radians
-  isSelected: boolean; // UI state, managed by store or component
+  rotation: number;
+  isSelected: boolean;
 }
 
-export interface ShapeStyle {
-  fillColor: string; // Hex format, e.g., #FF0000
+export interface RectangleElement extends BaseElement {
+  type: 'rectangle';
+  fillColor: string;
   strokeColor: string;
   strokeWidth: number;
   opacity: number;
 }
 
-export interface TextStyle {
-  content: string;
-  fontSize: number;
-  fontFamily: string;
-  fontWeight: string;
-  color: string;
+export interface CircleElement extends BaseElement {
+  type: 'circle';
+  fillColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  opacity: number;
 }
 
-// The unified type for any element on the canvas
-// Using Partial for TextStyle and a potential src for images
-export type CanvasElement = BaseElement & ShapeStyle & Partial<TextStyle> & { src?: string };
+export interface RoundedRectangleElement extends BaseElement {
+  type: 'rounded-rectangle';
+  fillColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  opacity: number;
+  borderRadius: number;
+}
+
+export interface TriangleElement extends BaseElement {
+  type: 'triangle';
+  fillColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  opacity: number;
+}
+
+export interface ImageElement extends BaseElement {
+  type: 'image';
+  src: string;
+  filters: {
+    grayscale: boolean;
+    blur: number;
+    brightness: number;
+  };
+}
+
+export type CanvasElement = RectangleElement | CircleElement | RoundedRectangleElement | TriangleElement | ImageElement;
+
+export type DistributiveOmit<T, K extends keyof any> = T extends any ? Omit<T, K> : never;
+
