@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
-import { Graphics, Sprite, Texture, ColorMatrixFilter, BlurFilter, Filter, Assets } from 'pixi.js';
+import { ref, watch, nextTick } from 'vue';
+import { Graphics, Sprite, Texture, ColorMatrixFilter, BlurFilter, Filter, Assets, Container, Text, TextStyle } from 'pixi.js';
 import { useCanvasRenderer } from '@/composables/useCanvasRenderer';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { screenToWorld } from '@/utils/coordinates';
+import { screenToWorld, worldToScreen } from '@/utils/coordinates';
+import TextEditor from './TextEditor.vue';
+import type { TextElement, TextSpan } from '@/types/element';
 
 const canvasContainer = ref<HTMLDivElement | null>(null);
 const canvasStore = useCanvasStore();
@@ -24,6 +26,15 @@ const dragStartWorldPointOffset = ref({ x: 0, y: 0 });
 const isCreating = ref(false);
 const creationStartPoint = ref({ x: 0, y: 0 });
 let ghostGraphic: Graphics | null = null;
+
+// Click state for double-click detection
+const lastClickMap = new Map<string, number>();
+
+// Text Editing state
+const isEditingText = ref(false);
+const editingElementId = ref<string | null>(null);
+const editingElement = ref<TextElement | null>(null);
+const editorPosition = ref({ top: 0, left: 0, width: 0, height: 0, fontSize: 16, fontFamily: 'Arial', color: '#000000' });
 
 // Watch active tool to update cursor
 watch(
@@ -73,7 +84,10 @@ const renderElements = () => {
 
   // Re-draw all elements
   canvasStore.elements.forEach((element) => {
-    let displayObject: Graphics | Sprite;
+    // Skip rendering if this element is currently being edited
+    if (element.id === editingElementId.value) return;
+
+    let displayObject: Graphics | Sprite | Container;
 
     if (element.type === 'image') {
       if (!element.src) return;
@@ -122,6 +136,78 @@ const renderElements = () => {
 
       sprite.filters = pixiFilters;
       displayObject = sprite;
+    } else if (element.type === 'text') {
+      const container = new Container();
+      container.position.set(element.x, element.y);
+      container.rotation = element.rotation;
+
+      // Background
+      const bgGraphics = new Graphics();
+      container.addChild(bgGraphics);
+
+      let currentX = 0;
+      let maxHeight = 0;
+
+      element.content.forEach((span) => {
+        const style = new TextStyle({
+          fontFamily: element.fontFamily,
+          fontSize: element.fontSize,
+          fill: element.color,
+          fontWeight: span.bold ? 'bold' : 'normal',
+          fontStyle: span.italic ? 'italic' : 'normal',
+          lineHeight: element.fontSize * 1.4, // Match editor line-height
+        });
+
+        const textObject = new Text({ text: span.text, style });
+        textObject.x = currentX;
+        container.addChild(textObject);
+
+        // Underline / Strikethrough
+        if (span.underline || span.strikethrough) {
+          const line = new Graphics();
+          const lineColor = element.color; 
+          
+          if (span.underline) {
+             line.moveTo(currentX, textObject.height);
+             line.lineTo(currentX + textObject.width, textObject.height);
+             line.stroke({ width: 2, color: lineColor });
+          }
+          
+          if (span.strikethrough) {
+             line.moveTo(currentX, textObject.height / 2);
+             line.lineTo(currentX + textObject.width, textObject.height / 2);
+             line.stroke({ width: 2, color: lineColor });
+          }
+          container.addChild(line);
+        }
+
+        currentX += textObject.width;
+        maxHeight = Math.max(maxHeight, textObject.height);
+      });
+
+      // Draw background if needed
+      if (element.backgroundColor !== 'transparent') {
+        bgGraphics.rect(0, 0, currentX, maxHeight);
+        bgGraphics.fill({ color: element.backgroundColor });
+        container.setChildIndex(bgGraphics, 0);
+      }
+
+      // Update element dimensions in store if changed
+      if (Math.abs(element.width - currentX) > 1 || Math.abs(element.height - maxHeight) > 1) {
+         setTimeout(() => {
+             canvasStore.updateTextElement(element.id, { width: currentX, height: maxHeight });
+         }, 0);
+      }
+
+      // Selection highlight
+      if (element.isSelected) {
+        const highlight = new Graphics();
+        highlight.rect(0, 0, currentX, maxHeight);
+        highlight.stroke({ width: 2, color: '#00FFFF' });
+        container.addChild(highlight);
+      }
+
+      displayObject = container;
     } else {
       const graphics = new Graphics();
       
@@ -170,6 +256,41 @@ const renderElements = () => {
       if (['rectangle', 'circle', 'rounded-rectangle', 'triangle'].includes(canvasStore.activeTool)) return; // Do not select when creating
 
       e.stopPropagation(); // Prevent stage pan
+      
+      // Double click detection for text
+      const now = Date.now();
+      const lastClickTime = lastClickMap.get(element.id) || 0;
+      
+      if (element.type === 'text' && now - lastClickTime < 300) {
+          // Stop DOM propagation to prevent the canvas container from receiving the click
+          // and potentially deselecting or stealing focus.
+          if (e.originalEvent) {
+            e.originalEvent.stopPropagation();
+            e.originalEvent.preventDefault();
+          }
+
+          if (app.value) {
+              const screenPos = worldToScreen({ x: element.x, y: element.y }, app.value.stage);
+              const scale = app.value.stage.scale.x;
+              
+              editingElementId.value = element.id;
+              editingElement.value = element as TextElement;
+              editorPosition.value = {
+                  top: screenPos.y,
+                  left: screenPos.x,
+                  width: element.width * scale,
+                  height: element.height * scale,
+                  fontSize: (element as TextElement).fontSize * scale,
+                  fontFamily: (element as TextElement).fontFamily,
+                  color: (element as TextElement).color
+              };
+              isEditingText.value = true;
+          }
+          // Reset click time to prevent triple-click triggering again immediately
+          lastClickMap.set(element.id, 0);
+          return;
+      }
+      lastClickMap.set(element.id, now);
         
       // Select element
       canvasStore.selectElement(element.id);
@@ -198,6 +319,14 @@ watch(
     renderElements();
   },
   { deep: true }
+);
+
+// Watch editing state to hide/show the underlying Pixi element
+watch(
+  () => editingElementId.value,
+  () => {
+    renderElements();
+  }
 );
 
 // Also watch for app initialization to render initial state
@@ -263,47 +392,15 @@ const handlePointerDown = (event: PointerEvent) => {
     lastPanPoint.value = { x: event.clientX, y: event.clientY };
     event.preventDefault();
   } else if (event.button === 0) {
-    // Left click on empty space deselects
-    // Note: If an element was clicked, stopPropagation in the element handler prevents this
-    // However, since this is on the container div, we need to be careful.
-    // Actually, Pixi events are handled inside the canvas.
-    // The div @pointerdown captures events that bubble up or are on the div itself.
-    // But since the canvas covers the div, we rely on Pixi's hit testing.
-    // If we are here, it means we clicked on the canvas (which is inside the div).
-    
-    // A better approach for "click on empty space":
-    // We can listen to 'pointerdown' on the stage in Pixi.
-    // But here we are using DOM events for panning.
-    
-    // Let's use a simple flag or check if we are dragging an element.
-    // But element drag starts in the element handler.
-    
-    // If we click on the background, we want to deselect.
-    // We can use the fact that if an element was clicked, isDraggingElement would be true (synchronously set in element handler?)
-    // Wait, Pixi event handlers run before DOM handlers if using Pixi's interaction manager?
-    // Actually, we are binding DOM events to the container div.
-    // Pixi's internal events (on the graphics) might not stop propagation to the DOM element in the way we expect unless we configure it.
-    
-    // To keep it simple and robust:
-    // We will add a stage hit area and listen to pointerdown on the stage to clear selection.
+    // If we are editing text, clicking outside should close the editor (handled by TextEditor blur)
+    // But we also want to deselect if we click on empty space.
+    // If we just entered edit mode (isEditingText is true), we should NOT deselect.
+    if (isEditingText.value) return;
+
     if (app.value) {
        // If we are NOT dragging an element (which means we didn't hit an element), deselect.
-       // But we need to know if we hit an element.
-       // Let's use the store state. If we just selected an element, we shouldn't deselect it.
-       // This is tricky with mixed DOM/Pixi events.
-       
-       // Alternative: Check if the event target is the canvas and we are not in a "hit" state.
-       // Let's rely on the fact that we set isDraggingElement = true in the element handler.
-       // If we use a small timeout or check the state?
-       
-       // Actually, let's just add a background hit area to the stage in renderElements or setup.
-       // For now, let's implement a simple check:
-       // If we are here, and we are not dragging an element, we might want to deselect.
-       // But isDraggingElement is set in the Pixi event handler.
-       // Does the Pixi event handler fire before this DOM handler?
-       // Yes, Pixi listens to pointer events on the canvas.
-       
-       // Let's try:
+       // Note: Pixi event handlers run before this DOM handler.
+       // If an element was clicked, isDraggingElement would be true.
        if (!isDraggingElement.value) {
          canvasStore.deselectAllElements();
        }
@@ -452,6 +549,23 @@ const handlePointerUp = (event: PointerEvent) => {
   isDraggingElement.value = false;
   draggedElementId.value = null;
 };
+
+const handleTextUpdate = (content: TextSpan[]) => {
+  if (editingElementId.value) {
+    // Check if content is empty
+    const isEmpty = content.every(span => span.text.trim() === '');
+    
+    if (isEmpty) {
+      canvasStore.removeElement(editingElementId.value);
+    } else {
+      canvasStore.updateTextElement(editingElementId.value, { content });
+    }
+    
+    isEditingText.value = false;
+    editingElementId.value = null;
+    editingElement.value = null;
+  }
+};
 </script>
 
 <template>
@@ -468,6 +582,15 @@ const handlePointerUp = (event: PointerEvent) => {
       @pointerup="handlePointerUp"
       @pointerleave="handlePointerUp"
     ></div>
+    
+    <TextEditor
+      v-if="isEditingText && editingElement"
+      :visible="isEditingText"
+      :element="editingElement"
+      :position="editorPosition"
+      @update="handleTextUpdate"
+      @close="isEditingText = false"
+    />
   </div>
 </template>
 

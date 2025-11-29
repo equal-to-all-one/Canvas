@@ -4,7 +4,7 @@
  * All elements on the canvas must conform to these types.
  */
 
-export type ElementType = 'rectangle' | 'circle' | 'rounded-rectangle' | 'triangle' | 'image';
+export type ElementType = 'rectangle' | 'circle' | 'rounded-rectangle' | 'triangle' | 'image' | 'text';
 
 export interface BaseElement {
   id: string;
@@ -14,6 +14,23 @@ export interface BaseElement {
   height: number;
   rotation: number;
   isSelected: boolean;
+}
+
+export interface TextSpan {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
+}
+
+export interface TextElement extends BaseElement {
+  type: 'text';
+  content: TextSpan[];
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  backgroundColor: string;
 }
 
 export interface RectangleElement extends BaseElement {
@@ -59,7 +76,7 @@ export interface ImageElement extends BaseElement {
   };
 }
 
-export type CanvasElement = RectangleElement | CircleElement | RoundedRectangleElement | TriangleElement | ImageElement;
+export type CanvasElement = RectangleElement | CircleElement | RoundedRectangleElement | TriangleElement | ImageElement | TextElement;
 
 export type DistributiveOmit<T, K extends keyof any> = T extends any ? Omit<T, K> : never;
 

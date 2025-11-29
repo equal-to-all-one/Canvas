@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useCanvasStore } from '@/stores/canvasStore';
-import type { ImageElement } from '@/types/element';
+import type { ImageElement, TextElement } from '@/types/element';
 
 const store = useCanvasStore();
 const fileInput = ref<HTMLInputElement | null>(null);
 
 const handleAddImage = () => {
   fileInput.value?.click();
+};
+
+const handleAddText = () => {
+  store.addTextElement();
 };
 
 const handleFileChange = (event: Event) => {
@@ -79,9 +83,29 @@ const selectedImage = computed<ImageElement | null>(() => {
   return null;
 });
 
+const selectedText = computed<TextElement | null>(() => {
+  const selected = store.selectedElements[0];
+  if (store.selectedElements.length === 1 && selected && selected.type === 'text') {
+    return selected as TextElement;
+  }
+  return null;
+});
+
 const updateFilter = (key: 'grayscale' | 'blur' | 'brightness', value: any) => {
   if (selectedImage.value) {
     store.updateImageFilters(selectedImage.value.id, { [key]: value });
+  }
+};
+
+const updateTextProperty = (key: keyof TextElement, value: any) => {
+  if (selectedText.value) {
+    store.updateTextElement(selectedText.value.id, { [key]: value });
+  }
+};
+
+const toggleFormat = (format: 'bold' | 'italic' | 'underline' | 'strikethrough') => {
+  if (selectedText.value) {
+    store.toggleTextFormatting(selectedText.value.id, format);
   }
 };
 </script>
@@ -117,6 +141,9 @@ const updateFilter = (key: 'grayscale' | 'blur' | 'brightness', value: any) => {
       @click="store.setActiveTool('triangle')"
     >
       三角形
+    </button>
+    <button @click="handleAddText">
+      添加文本
     </button>
     <button @click="handleAddImage">
       添加图片
@@ -163,6 +190,47 @@ const updateFilter = (key: 'grayscale' | 'blur' | 'brightness', value: any) => {
         :value="selectedImage.filters.brightness"
         @input="(e) => updateFilter('brightness', parseFloat((e.target as HTMLInputElement).value))"
       >
+    </div>
+  </div>
+
+  <div v-if="selectedText" class="filter-toolbar">
+    <h4>文本样式</h4>
+    <div class="filter-control">
+      <label>字体</label>
+      <select 
+        :value="selectedText.fontFamily"
+        @change="(e) => updateTextProperty('fontFamily', (e.target as HTMLSelectElement).value)"
+      >
+        <option value="Arial">Arial</option>
+        <option value="Times New Roman">Times New Roman</option>
+        <option value="Courier New">Courier New</option>
+        <option value="Georgia">Georgia</option>
+        <option value="Verdana">Verdana</option>
+      </select>
+    </div>
+    <div class="filter-control">
+      <label>大小: {{ selectedText.fontSize }}px</label>
+      <input 
+        type="number" 
+        min="8" 
+        max="200" 
+        :value="selectedText.fontSize"
+        @input="(e) => updateTextProperty('fontSize', parseFloat((e.target as HTMLInputElement).value))"
+      >
+    </div>
+    <div class="filter-control">
+      <label>颜色</label>
+      <input 
+        type="color" 
+        :value="selectedText.color"
+        @input="(e) => updateTextProperty('color', (e.target as HTMLInputElement).value)"
+      >
+    </div>
+    <div class="filter-control style-buttons">
+      <button @click="toggleFormat('bold')" title="Bold">B</button>
+      <button @click="toggleFormat('italic')" title="Italic">I</button>
+      <button @click="toggleFormat('underline')" title="Underline">U</button>
+      <button @click="toggleFormat('strikethrough')" title="Strikethrough">S</button>
     </div>
   </div>
 </template>
@@ -231,6 +299,17 @@ button:hover {
 button.active {
   background-color: #e0e0e0;
   border-color: #999;
+  font-weight: bold;
+}
+
+.style-buttons {
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.style-buttons button {
+  padding: 4px 8px;
+  min-width: 30px;
   font-weight: bold;
 }
 </style>

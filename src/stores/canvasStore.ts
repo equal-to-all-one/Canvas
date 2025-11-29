@@ -5,7 +5,7 @@
  */
 import { defineStore } from 'pinia';
 import { v4 as uuidv4 } from 'uuid';
-import type { CanvasElement, DistributiveOmit } from '@/types/element';
+import type { CanvasElement, DistributiveOmit, TextElement, TextSpan } from '@/types/element';
 
 // 定义 Store 中 state 的数据结构
 interface CanvasState {
@@ -13,7 +13,7 @@ interface CanvasState {
   selectedElementIds: string[];
   zoom: number;
   pan: { x: number; y: number };
-  activeTool: 'select' | 'rectangle' | 'circle' | 'rounded-rectangle' | 'triangle';
+  activeTool: 'select' | 'rectangle' | 'circle' | 'rounded-rectangle' | 'triangle' | 'text';
 }
 
 export const useCanvasStore = defineStore('canvas', {
@@ -26,7 +26,7 @@ export const useCanvasStore = defineStore('canvas', {
   }),
 
   actions: {
-    setActiveTool(tool: 'select' | 'rectangle' | 'circle' | 'rounded-rectangle' | 'triangle') {
+    setActiveTool(tool: 'select' | 'rectangle' | 'circle' | 'rounded-rectangle' | 'triangle' | 'text') {
       this.activeTool = tool;
     },
 
@@ -111,6 +111,48 @@ export const useCanvasStore = defineStore('canvas', {
       const element = this.elements.find((el) => el.id === id);
       if (element && element.type === 'image') {
         Object.assign(element.filters, filters);
+      }
+    },
+
+    addTextElement() {
+      const newElement: CanvasElement = {
+        id: uuidv4(),
+        type: 'text',
+        x: 400,
+        y: 300,
+        width: 200,
+        height: 30,
+        rotation: 0,
+        isSelected: false,
+        content: [{ text: 'Double click to edit' }],
+        fontFamily: 'Arial',
+        fontSize: 24,
+        color: '#000000',
+        backgroundColor: 'transparent',
+      };
+      this.elements.push(newElement);
+    },
+
+    updateTextElement(id: string, updates: Partial<TextElement>) {
+      const element = this.elements.find((el) => el.id === id);
+      if (element && element.type === 'text') {
+        Object.assign(element, updates);
+      }
+    },
+
+    toggleTextFormatting(id: string, format: 'bold' | 'italic' | 'underline' | 'strikethrough') {
+      const element = this.elements.find((el) => el.id === id);
+      if (element && element.type === 'text') {
+        const textElement = element as TextElement;
+        // Check if all spans currently have this format enabled
+        const allTrue = textElement.content.every(span => span[format]);
+        const newValue = !allTrue;
+        
+        // Apply to all spans
+        textElement.content = textElement.content.map(span => ({
+          ...span,
+          [format]: newValue
+        }));
       }
     },
   },
