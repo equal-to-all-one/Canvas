@@ -14,6 +14,7 @@ interface CanvasState {
   zoom: number;
   pan: { x: number; y: number };
   activeTool: 'select' | 'rectangle' | 'circle' | 'rounded-rectangle' | 'triangle' | 'text';
+  pasteCount: number;
 }
 
 export const useCanvasStore = defineStore('canvas', {
@@ -23,6 +24,7 @@ export const useCanvasStore = defineStore('canvas', {
     zoom: 1,
     pan: { x: 0, y: 0 },
     activeTool: 'select',
+    pasteCount: 1,
   }),
 
   actions: {
@@ -191,6 +193,58 @@ export const useCanvasStore = defineStore('canvas', {
           ...span,
           [format]: newValue
         }));
+      }
+    },
+
+    setElements(elements: CanvasElement[]) {
+      this.elements = elements;
+    },
+
+    copyToClipboard() {
+      const selected = this.selectedElements;
+      if (selected.length === 0) return;
+      localStorage.setItem('canvas-clipboard', JSON.stringify(selected));
+      // Reset paste count on new copy
+      this.pasteCount = 1;
+    },
+
+    pasteFromClipboard() {
+      const clipboardData = localStorage.getItem('canvas-clipboard');
+      if (!clipboardData) return;
+
+      try {
+        const elements = JSON.parse(clipboardData) as CanvasElement[];
+        if (!Array.isArray(elements)) return;
+
+        // Offset increases with each paste: 20px, 40px, 60px...
+        const offset = 20 * this.pasteCount;
+
+        const newElements = elements.map(el => {
+          // @ts-ignore
+          const newEl: CanvasElement = {
+            ...el,
+            id: uuidv4(),
+            x: el.x + offset,
+            y: el.y + offset,
+            isSelected: true // Select the new elements
+          };
+          return newEl;
+        });
+
+        // Deselect current
+        this.clearSelection();
+
+        // Add new elements
+        this.elements.push(...newElements);
+
+        // Select new elements
+        this.selectedElementIds = newElements.map(el => el.id);
+        
+        // Increment paste count for next paste
+        this.pasteCount++;
+
+      } catch (e) {
+        console.error('Failed to paste from clipboard', e);
       }
     },
   },
