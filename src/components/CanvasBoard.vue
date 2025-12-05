@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue';
+import { ref, watch, nextTick, watchEffect, computed } from 'vue';
 import { Graphics, Sprite, Texture, ColorMatrixFilter, BlurFilter, Filter, Assets, Container, Text, TextStyle } from 'pixi.js';
 import { useCanvasRenderer } from '@/composables/useCanvasRenderer';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { screenToWorld, worldToScreen } from '@/utils/coordinates';
 import TextEditor from './TextEditor.vue';
 import Transformer from './Transformer.vue';
+import FloatingToolbar from './FloatingToolbar.vue';
 import type { TextElement, TextSpan } from '@/types/element';
 
 const canvasContainer = ref<HTMLDivElement | null>(null);
@@ -37,6 +38,40 @@ const isEditingText = ref(false);
 const editingElementId = ref<string | null>(null);
 const editingElement = ref<TextElement | null>(null);
 const editorPosition = ref({ top: 0, left: 0, width: 0, height: 0, fontSize: 16, fontFamily: 'Arial', color: '#000000' });
+
+const floatingToolbarPosition = ref({ top: 0, left: 0 });
+
+const singleSelectedElement = computed(() => {
+  if (canvasStore.selectedElements.length === 1) {
+    return canvasStore.selectedElements[0];
+  }
+  return null;
+});
+
+watchEffect(() => {
+  // Depend on store zoom/pan to trigger update on viewport change
+  void canvasStore.zoom;
+  void canvasStore.pan;
+  const selection = canvasStore.selectedElements;
+
+  if (selection.length === 1 && app.value && app.value.stage) {
+    const el = selection[0];
+    if (!el) return;
+
+    // Depend on element properties
+    void el.x;
+    void el.y;
+    void el.width;
+
+    const screenPos = worldToScreen({ x: el.x, y: el.y }, app.value.stage);
+    const width = el.width * app.value.stage.scale.x;
+    
+    floatingToolbarPosition.value = {
+      top: screenPos.y,
+      left: screenPos.x + width
+    };
+  }
+});
 
 // Selection-box (marquee) state
 const isDraggingSelectionBox = ref(false);
@@ -251,10 +286,21 @@ const renderElements = () => {
         
       // Selection highlight (supports temporary marquee selection)
       const isEffectivelySelected = element.isSelected || tempSelectionIds.value.has(element.id);
+      
+      // Always draw the element's actual stroke
+      graphics.stroke({ width: element.strokeWidth, color: element.strokeColor });
+
       if (isEffectivelySelected) {
-        graphics.stroke({ width: 4, color: '#00FFFF' }); // Cyan highlight
-      } else {
-        graphics.stroke({ width: element.strokeWidth, color: element.strokeColor });
+        // Draw selection highlight as a separate child to avoid overwriting the element's stroke
+        const selectionHighlight = new Graphics();
+        const padding = 4;
+        
+        // Draw a bounding box around the element
+        // Note: For circles/triangles, a rect bounding box is standard for selection
+        selectionHighlight.rect(-padding, -padding, element.width + padding * 2, element.height + padding * 2);
+        selectionHighlight.stroke({ width: 1, color: '#00FFFF' });
+        
+        graphics.addChild(selectionHighlight);
       }
       displayObject = graphics;
     }
@@ -797,6 +843,12 @@ const handleTextUpdate = (content: TextSpan[]) => {
       :position="editorPosition"
       @update="handleTextUpdate"
       @close="isEditingText = false"
+    />
+    
+    <FloatingToolbar
+      v-if="singleSelectedElement"
+      :element="singleSelectedElement"
+      :position="floatingToolbarPosition"
     />
     
     <Transformer />
