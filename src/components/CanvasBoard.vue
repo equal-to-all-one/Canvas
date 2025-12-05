@@ -5,6 +5,7 @@ import { useCanvasRenderer } from '@/composables/useCanvasRenderer';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { screenToWorld, worldToScreen } from '@/utils/coordinates';
 import TextEditor from './TextEditor.vue';
+import Transformer from './Transformer.vue';
 import type { TextElement, TextSpan } from '@/types/element';
 
 const canvasContainer = ref<HTMLDivElement | null>(null);
@@ -20,7 +21,8 @@ const lastPanPoint = ref({ x: 0, y: 0 });
 // Dragging state
 const isDraggingElement = ref(false);
 const draggedElementId = ref<string | null>(null);
-const dragStartWorldPointOffset = ref({ x: 0, y: 0 });
+const dragStartWorldPoint = ref({ x: 0, y: 0 });
+const dragStartElementStates = ref<Map<string, { x: number, y: number }>>(new Map());
 
 // Creation state
 const isCreating = ref(false);
@@ -35,6 +37,13 @@ const isEditingText = ref(false);
 const editingElementId = ref<string | null>(null);
 const editingElement = ref<TextElement | null>(null);
 const editorPosition = ref({ top: 0, left: 0, width: 0, height: 0, fontSize: 16, fontFamily: 'Arial', color: '#000000' });
+
+// Selection-box (marquee) state
+const isDraggingSelectionBox = ref(false);
+const selectionStartScreen = ref({ x: 0, y: 0 });
+let selectionGraphic: Graphics | null = null;
+const tempSelectionIds = ref(new Set<string>());
+const pendingDeselectId = ref<string | null>(null);
 
 // Watch active tool to update cursor
 watch(
@@ -199,8 +208,9 @@ const renderElements = () => {
          }, 0);
       }
 
-      // Selection highlight
-      if (element.isSelected) {
+      // Selection highlight (supports temporary marquee selection)
+      const isEffectivelySelected = element.isSelected || tempSelectionIds.value.has(element.id);
+      if (isEffectivelySelected) {
         const highlight = new Graphics();
         highlight.rect(0, 0, currentX, maxHeight);
         highlight.stroke({ width: 2, color: '#00FFFF' });
@@ -239,8 +249,9 @@ const renderElements = () => {
         graphics.fill({ color: element.fillColor, alpha: element.opacity });
       }
         
-      // Selection highlight
-      if (element.isSelected) {
+      // Selection highlight (supports temporary marquee selection)
+      const isEffectivelySelected = element.isSelected || tempSelectionIds.value.has(element.id);
+      if (isEffectivelySelected) {
         graphics.stroke({ width: 4, color: '#00FFFF' }); // Cyan highlight
       } else {
         graphics.stroke({ width: element.strokeWidth, color: element.strokeColor });
@@ -251,6 +262,7 @@ const renderElements = () => {
     // Make interactive
     displayObject.eventMode = 'static'; // Replaces interactive = true in v7/v8
     displayObject.cursor = 'pointer';
+    displayObject.label = element.id; // Store ID for retrieval during drag
       
     displayObject.on('pointerdown', (e) => {
       if (['rectangle', 'circle', 'rounded-rectangle', 'triangle'].includes(canvasStore.activeTool)) return; // Do not select when creating
@@ -292,8 +304,26 @@ const renderElements = () => {
       }
       lastClickMap.set(element.id, now);
         
-      // Select element
-      canvasStore.selectElement(element.id);
+      // Select element (support Shift to add/remove from selection)
+      const originalEvent = (e.originalEvent as unknown as MouseEvent) || (e as unknown as MouseEvent);
+      if (originalEvent && originalEvent.shiftKey) {
+        // If already selected, don't remove immediately (to allow dragging group).
+        // Mark for potential deselection on mouse up.
+        if (canvasStore.selectedElementIds.includes(element.id)) {
+          pendingDeselectId.value = element.id;
+        } else {
+          canvasStore.addToSelection([element.id]);
+          pendingDeselectId.value = null;
+        }
+      } else {
+        // If not already selected, select it.
+        // If already selected, keep selection to allow group drag.
+        // We will handle "deselect others on click" in pointerup if no drag occurred.
+        if (!canvasStore.selectedElementIds.includes(element.id)) {
+          canvasStore.setSelectedElements([element.id]);
+        }
+        pendingDeselectId.value = null;
+      }
         
       // Start dragging
       if (app.value) {
@@ -301,10 +331,19 @@ const renderElements = () => {
         draggedElementId.value = element.id;
           
         const worldPos = screenToWorld({ x: e.global.x, y: e.global.y }, app.value.stage);
-        dragStartWorldPointOffset.value = {
-          x: worldPos.x - element.x,
-          y: worldPos.y - element.y
-        };
+        dragStartWorldPoint.value = worldPos;
+        
+        // Snapshot all selected elements positions
+        dragStartElementStates.value.clear();
+        
+        // If the clicked element is NOT in the selection (shouldn't happen due to logic above, but safe guard)
+        // we treat it as a single drag. But logic above ensures it's selected.
+        // If user clicked an unselected element without shift, it became the only selection.
+        // If user clicked a selected element, we drag all selected elements.
+        
+        canvasStore.selectedElements.forEach(el => {
+          dragStartElementStates.value.set(el.id, { x: el.x, y: el.y });
+        });
       }
     });
 
@@ -398,11 +437,22 @@ const handlePointerDown = (event: PointerEvent) => {
     if (isEditingText.value) return;
 
     if (app.value) {
-       // If we are NOT dragging an element (which means we didn't hit an element), deselect.
-       // Note: Pixi event handlers run before this DOM handler.
-       // If an element was clicked, isDraggingElement would be true.
-       if (!isDraggingElement.value) {
-         canvasStore.deselectAllElements();
+       // If we are NOT dragging an element (which means we didn't hit an element), start marquee selection.
+       // Note: Pixi event handlers run before this DOM handler and call stopPropagation when clicking an element,
+       // so this handler running implies the user clicked empty space.
+       if (!isDraggingElement.value && canvasStore.activeTool === 'select') {
+         // Begin selection-box drag
+         isDraggingSelectionBox.value = true;
+         selectionStartScreen.value = { x: event.clientX, y: event.clientY };
+         tempSelectionIds.value = new Set();
+
+         // Create graphics overlay in world coordinates
+         selectionGraphic = new Graphics();
+         // Add to stage so it's visible above elements
+         app.value.stage.addChild(selectionGraphic);
+       } else if (!isDraggingElement.value) {
+         // simple click on empty space -> deselect
+         canvasStore.clearSelection();
        }
     }
   }
@@ -455,13 +505,99 @@ const handlePointerMove = (event: PointerEvent) => {
 
     // Sync to store
     canvasStore.setPan({ x: app.value.stage.position.x, y: app.value.stage.position.y });
-  } else if (isDraggingElement.value && draggedElementId.value && app.value) {
+  } else if (isDraggingElement.value && app.value) {
     const worldPos = screenToWorld({ x: event.clientX, y: event.clientY }, app.value.stage);
     
-    const newX = worldPos.x - dragStartWorldPointOffset.value.x;
-    const newY = worldPos.y - dragStartWorldPointOffset.value.y;
+    const dx = worldPos.x - dragStartWorldPoint.value.x;
+    const dy = worldPos.y - dragStartWorldPoint.value.y;
     
-    canvasStore.updateElementTransform(draggedElementId.value, { x: newX, y: newY });
+    // Update all dragged elements visually (without committing to store yet if possible, 
+    // but our render loop relies on store. So we update store for now. 
+    // Optimization: We could update Pixi objects directly and only commit on pointer up.
+    // Let's try direct Pixi update for smoothness if we can map IDs to Pixi objects, 
+    // but currently we rebuild scene on store change.
+    // To support "batch drag" efficiently as requested:
+    // "mousemove 阶段应只负责计算位移和更新视觉表现，禁止在此阶段频繁提交 store 更新"
+    
+    // We need to access the Pixi objects. Since we clear stage on render, we don't have a persistent map.
+    // Let's iterate stage children.
+    
+    app.value.stage.children.forEach((child: any) => {
+       // We need a way to link child to element ID. 
+       // We didn't attach ID to displayObject. Let's assume we can't easily do it without refactor.
+       // Wait, we can attach ID to displayObject in renderElements.
+    });
+    
+    // For now, to meet the requirement of "smooth drag without store update", 
+    // we need to refactor renderElements to attach ID to the graphics/sprite.
+    // Let's do a quick hack: we will update store for now because refactoring render loop is risky in this step.
+    // Wait, the requirement says "禁止在此阶段频繁提交 store 更新".
+    // So I MUST implement direct Pixi manipulation.
+    
+    // Let's modify renderElements to attach ID.
+    // Since I can't modify renderElements in this tool call easily without reading it all again,
+    // I will assume I can find the child by some means or just update store for this iteration 
+    // AND THEN refactor in next step if needed? 
+    // No, I should do it right.
+    
+    // Actually, I can just update the store. Vue 3 + Pinia + Pixi is usually fast enough for < 100 elements.
+    // But to strictly follow "Instruction 2", I need to update Pixi objects directly.
+    
+    // Let's assume I can't easily find Pixi objects without a map.
+    // I will update the store for now, but use `updateElementTransform` which is granular.
+    // To do "batch update" on mouse up, I need to track final positions.
+    
+    // REVISION: I will update store for now to ensure it works, 
+    // as "Direct Pixi manipulation" requires a `Map<id, DisplayObject>` which I don't have yet.
+    // Adding that map requires changing `renderElements`.
+    
+    // Let's try to update store. If it's slow, we optimize.
+    // Actually, the prompt explicitly asked for "Direct Pixi manipulation".
+    // I will add `name` property to DisplayObject in `renderElements` in a separate edit 
+    // so I can find them here.
+    
+    // For this specific edit, I will implement the logic assuming `child.name === element.id`.
+    
+    app.value.stage.children.forEach((child) => {
+        if (dragStartElementStates.value.has(child.label)) {
+            const startState = dragStartElementStates.value.get(child.label)!;
+            child.position.set(startState.x + dx, startState.y + dy);
+        }
+    });
+  }
+  // Handle marquee selection drag
+  if (isDraggingSelectionBox.value && app.value) {
+    if (!selectionGraphic) return;
+    const start = selectionStartScreen.value;
+    const current = { x: event.clientX, y: event.clientY };
+
+    // Draw rectangle in world coords
+    const worldStart = screenToWorld({ x: start.x, y: start.y }, app.value.stage);
+    const worldCurrent = screenToWorld({ x: current.x, y: current.y }, app.value.stage);
+
+    const x = Math.min(worldStart.x, worldCurrent.x);
+    const y = Math.min(worldStart.y, worldCurrent.y);
+    const w = Math.abs(worldCurrent.x - worldStart.x);
+    const h = Math.abs(worldCurrent.y - worldStart.y);
+
+    selectionGraphic.clear();
+    selectionGraphic.rect(x, y, w, h);
+    selectionGraphic.fill({ color: 0x3399FF, alpha: 0.08 });
+    selectionGraphic.stroke({ width: 1, color: 0x3399FF, alpha: 0.6 });
+
+    // Collision detection (axis-aligned bounding boxes)
+    const newlySelected = new Set<string>();
+    canvasStore.elements.forEach(el => {
+      const ex = el.x;
+      const ey = el.y;
+      const ew = el.width ?? 0;
+      const eh = el.height ?? 0;
+
+      const intersects = !(ex + ew < x || ex > x + w || ey + eh < y || ey > y + h);
+      if (intersects) newlySelected.add(el.id);
+    });
+
+    tempSelectionIds.value = newlySelected;
   }
 };
 
@@ -546,8 +682,76 @@ const handlePointerUp = (event: PointerEvent) => {
   }
 
   isPanning.value = false;
+  
+  if (isDraggingElement.value && app.value) {
+    // Commit final positions to store
+    const worldPos = screenToWorld({ x: event.clientX, y: event.clientY }, app.value.stage);
+    const dx = worldPos.x - dragStartWorldPoint.value.x;
+    const dy = worldPos.y - dragStartWorldPoint.value.y;
+
+    // Use a small threshold to distinguish click from drag
+    if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+      const updates: { id: string, x: number, y: number }[] = [];
+      dragStartElementStates.value.forEach((startState, id) => {
+        updates.push({
+          id,
+          x: startState.x + dx,
+          y: startState.y + dy
+        });
+      });
+      canvasStore.updateElementsPositions(updates);
+      
+      // Drag occurred, so cancel any pending deselect
+      pendingDeselectId.value = null;
+    } else {
+      // It was a click (no significant drag)
+      
+      if (event.shiftKey) {
+        // If Shift was held and we have a pending deselect, execute it now
+        if (pendingDeselectId.value && pendingDeselectId.value === draggedElementId.value) {
+          canvasStore.removeFromSelection([pendingDeselectId.value]);
+        }
+      } else {
+        // If we clicked a selected element without Shift, we should now select ONLY that element
+        // (This handles the "Click selected element to isolate it" behavior)
+        if (draggedElementId.value) {
+           canvasStore.setSelectedElements([draggedElementId.value]);
+        }
+      }
+    }
+  }
+
   isDraggingElement.value = false;
+  pendingDeselectId.value = null; // Reset pending deselect
   draggedElementId.value = null;
+  dragStartElementStates.value.clear();
+
+  // Commit marquee selection if active
+  if (isDraggingSelectionBox.value) {
+    isDraggingSelectionBox.value = false;
+
+    if (selectionGraphic && app.value) {
+      app.value.stage.removeChild(selectionGraphic);
+      selectionGraphic.destroy();
+      selectionGraphic = null;
+    }
+
+    // Determine if it was a click (small movement) or a drag
+    const dx = event.clientX - selectionStartScreen.value.x;
+    const dy = event.clientY - selectionStartScreen.value.y;
+    const distSq = dx * dx + dy * dy;
+
+    if (distSq < 25) {
+      // Considered click on empty space
+      canvasStore.clearSelection();
+    } else {
+      // Commit the temporary selection
+      canvasStore.setSelectedElements(Array.from(tempSelectionIds.value));
+    }
+
+    // Clear temp selection
+    tempSelectionIds.value = new Set();
+  }
 };
 
 const handleTextUpdate = (content: TextSpan[]) => {
@@ -561,6 +765,9 @@ const handleTextUpdate = (content: TextSpan[]) => {
       canvasStore.updateTextElement(editingElementId.value, { content });
     }
     
+    // Deselect the element after editing
+    canvasStore.clearSelection();
+
     isEditingText.value = false;
     editingElementId.value = null;
     editingElement.value = null;
@@ -591,6 +798,8 @@ const handleTextUpdate = (content: TextSpan[]) => {
       @update="handleTextUpdate"
       @close="isEditingText = false"
     />
+    
+    <Transformer />
   </div>
 </template>
 

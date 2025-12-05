@@ -50,11 +50,29 @@ export const useCanvasStore = defineStore('canvas', {
     },
 
     setSelectedElements(ids: string[]) {
-      this.selectedElementIds = ids;
+      // Atomically replace the selection and update element.isSelected flags
+      this.selectedElementIds = ids.slice();
+      // Ensure element.isSelected reflects current selection
+      this.elements.forEach((el) => {
+        el.isSelected = this.selectedElementIds.includes(el.id);
+      });
     },
 
     clearSelection() {
-      this.selectedElementIds = [];
+      this.setSelectedElements([]);
+    },
+
+    // Optional helpers for shift-select behavior
+    addToSelection(ids: string[]) {
+      const set = new Set(this.selectedElementIds);
+      ids.forEach(id => set.add(id));
+      this.setSelectedElements(Array.from(set));
+    },
+
+    removeFromSelection(ids: string[]) {
+      const removeSet = new Set(ids);
+      const remaining = this.selectedElementIds.filter(id => !removeSet.has(id));
+      this.setSelectedElements(remaining);
     },
 
     setZoom(newZoom: number) {
@@ -67,10 +85,8 @@ export const useCanvasStore = defineStore('canvas', {
     },
 
     selectElement(id: string) {
-      this.elements.forEach((el) => {
-        el.isSelected = el.id === id;
-      });
-      this.selectedElementIds = [id];
+      // Backwards-compatible helper: select a single element
+      this.setSelectedElements([id]);
     },
 
     deselectAllElements() {
@@ -140,6 +156,28 @@ export const useCanvasStore = defineStore('canvas', {
       }
     },
 
+    deleteSelectedElements() {
+      if (this.selectedElementIds.length === 0) return;
+      
+      // Filter out selected elements
+      this.elements = this.elements.filter(el => !this.selectedElementIds.includes(el.id));
+      
+      // Clear selection
+      this.clearSelection();
+    },
+
+    updateElementsPositions(positions: { id: string, x: number, y: number }[]) {
+      const elementMap = new Map(this.elements.map(el => [el.id, el]));
+      
+      positions.forEach(pos => {
+        const element = elementMap.get(pos.id);
+        if (element) {
+          element.x = pos.x;
+          element.y = pos.y;
+        }
+      });
+    },
+
     toggleTextFormatting(id: string, format: 'bold' | 'italic' | 'underline' | 'strikethrough') {
       const element = this.elements.find((el) => el.id === id);
       if (element && element.type === 'text') {
@@ -161,6 +199,38 @@ export const useCanvasStore = defineStore('canvas', {
     selectedElements: (state): CanvasElement[] => {
       const selectedSet = new Set(state.selectedElementIds);
       return state.elements.filter((el: CanvasElement) => selectedSet.has(el.id));
+    },
+    selectionBoundingBox: (state) => {
+      return () => {
+        if (!state.selectedElementIds || state.selectedElementIds.length === 0) return null;
+
+        const selected = state.elements.filter(el => state.selectedElementIds.includes(el.id));
+        if (selected.length === 0) return null;
+
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        selected.forEach(el => {
+          const x1 = el.x;
+          const y1 = el.y;
+          const x2 = el.x + (el.width ?? 0);
+          const y2 = el.y + (el.height ?? 0);
+
+          minX = Math.min(minX, x1);
+          minY = Math.min(minY, y1);
+          maxX = Math.max(maxX, x2);
+          maxY = Math.max(maxY, y2);
+        });
+
+        return {
+          x: minX,
+          y: minY,
+          width: Math.max(0, maxX - minX),
+          height: Math.max(0, maxY - minY),
+        };
+      };
     },
     getElement: (state) => {
       return (id: string) => state.elements.find((el: CanvasElement) => el.id === id);
