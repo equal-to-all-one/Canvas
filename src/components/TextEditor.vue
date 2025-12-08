@@ -172,13 +172,13 @@ watch(() => props.visible, (newVal) => {
 .text-editor {
   position: absolute;
   outline: none; /* Remove default focus outline */
-  border: 1px dashed #00FFFF; /* Custom border */
+  border: 1px dashed var(--color-primary); /* Custom border */
   z-index: 1000;
   white-space: pre;
   overflow: visible; /* Allow text to expand */
   line-height: 1.4; /* Increased for better cursor visibility */
   padding: 0;
   margin: 0;
-  caret-color: #0066ff; /* Bright blue cursor for better visibility */
+  caret-color: var(--color-primary); /* Bright blue cursor for better visibility */
 }
 </style>

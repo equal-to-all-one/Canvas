@@ -1,32 +1,32 @@
-# Data Persistence & Clipboard Strategy
+# 数据持久化与剪贴板策略
 
-## Overview
-This application implements a robust data persistence strategy using the browser's `localStorage`. This ensures that the user's work is automatically saved and can be recovered after a page refresh. Additionally, the clipboard functionality (Copy/Paste) is also persisted, allowing users to copy an element, refresh the page, and then paste it.
+## 概述
+本应用程序使用浏览器的 `localStorage` 实现了健壮的数据持久化策略。这确保了用户的工作会自动保存，并可以在页面刷新后恢复。此外，剪贴板功能（复制/粘贴）也进行了持久化，允许用户复制元素，刷新页面，然后粘贴它。
 
-## Implementation Details
+## 实现细节
 
-### 1. Auto-Save (Data Persistence)
--   **Technology**: `localStorage`
--   **Key**: `canvas-data`
--   **Mechanism**:
-    -   We utilize Pinia's `$subscribe` method to listen for any changes in the global state.
-    -   Whenever a mutation occurs (e.g., adding an element, moving a shape, editing text), the entire `elements` array is serialized to JSON and saved to `localStorage`.
-    -   **Recovery**: On application mount (`App.vue`), we check for the existence of `canvas-data` in `localStorage`. If found, we parse the JSON and hydrate the Pinia store, restoring the canvas to its previous state.
+### 1. 自动保存 (数据持久化)
+-   **技术**: `localStorage`
+-   **键名**: `canvas-data`
+-   **机制**:
+    -   我们利用 Pinia 的 `$subscribe` 方法来监听全局状态的任何变化。
+    -   每当发生变更（例如：添加元素、移动形状、编辑文本）时，整个 `elements` 数组会被序列化为 JSON 并保存到 `localStorage`。
+    -   **恢复**: 在应用程序挂载 (`App.vue`) 时，我们检查 `localStorage` 中是否存在 `canvas-data`。如果找到，我们会解析 JSON 并恢复 Pinia Store，将画布还原到之前的状态。
 
-### 2. Persistent Clipboard
--   **Technology**: `localStorage`
--   **Key**: `canvas-clipboard`
--   **Mechanism**:
-    -   **Copy (`Ctrl+C`)**: When the user triggers the copy command, the currently selected elements are serialized to JSON and stored in `localStorage` under the key `canvas-clipboard`. This allows the "clipboard" to survive a page reload, unlike a simple in-memory variable.
-    -   **Paste (`Ctrl+V`)**: When the paste command is triggered, we read from `canvas-clipboard`.
-    -   **Multi-Paste Support**: We maintain a `pasteCount` in the store. Each subsequent paste operation increases the offset (20px * count), allowing users to paste multiple times and see a cascading effect, rather than all copies stacking directly on top of each other. The count resets when a new Copy operation is performed.
-    -   **Conflict Resolution**: To avoid ID collisions, new UUIDs are generated for every pasted element.
-    -   **Visual Feedback**: Pasted elements are slightly offset from the original position to make them visible.
+### 2. 持久化剪贴板
+-   **技术**: `localStorage`
+-   **键名**: `canvas-clipboard`
+-   **机制**:
+    -   **复制 (`Ctrl+C`)**: 当用户触发复制命令时，当前选中的元素会被序列化为 JSON 并存储在 `localStorage` 的 `canvas-clipboard` 键下。这使得“剪贴板”能够在页面重新加载后依然存在，这与简单的内存变量不同。
+    -   **粘贴 (`Ctrl+V`)**: 当触发粘贴命令时，我们从 `canvas-clipboard` 读取数据。
+    -   **多重粘贴支持**: 我们在 Store 中维护一个 `pasteCount`。每次后续的粘贴操作都会增加偏移量（20px * 计数），允许用户多次粘贴并看到层叠效果，而不是所有副本都直接堆叠在彼此之上。当执行新的复制操作时，计数重置。
+    -   **冲突解决**: 为了避免 ID 冲突，为每个粘贴的元素生成新的 UUID。
+    -   **视觉反馈**: 粘贴的元素会相对于原始位置略微偏移，以使其可见。
 
-## Limitations & Trade-offs
--   **Storage Limit**: `localStorage` is typically limited to around 5MB per origin. Since we are storing images as Base64 Data URLs, adding multiple high-resolution images will quickly exhaust this limit.
--   **Performance**: Serializing the entire element tree on every change is efficient for hundreds of elements but may become a bottleneck with thousands of elements.
+## 限制与权衡
+-   **存储限制**: `localStorage` 通常限制为每个源约 5MB。由于我们将图片存储为 Base64 Data URL，添加多张高分辨率图片将很快耗尽此限制。
+-   **性能**: 在每次更改时序列化整个元素树对于数百个元素是高效的，但对于数千个元素可能会成为瓶颈。
 
-## Future Improvements
--   **IndexedDB**: For a production-ready application, we would migrate to `IndexedDB` (using a wrapper like `idb` or `localforage`). This would remove the 5MB limit and allow for storing large image blobs asynchronously without blocking the main thread.
--   **Debouncing**: Implementing a debounce function for the save operation would reduce the frequency of writes to storage during rapid interactions (like dragging).
+## 未来改进
+-   **IndexedDB**: 对于生产级应用程序，我们将迁移到 `IndexedDB`（使用 `idb` 或 `localforage` 等封装库）。这将消除 5MB 的限制，并允许异步存储大型图片 Blob，而不会阻塞主线程。
+-   **防抖 (Debouncing)**: 为保存操作实现防抖函数，将减少在快速交互（如拖拽）期间写入存储的频率。

@@ -17,8 +17,11 @@ export function useCanvasRenderer(canvasContainer: Ref<HTMLDivElement | null>): 
       
       // Wait for the app to be created
       await pixiApp.init({
-        background: '#1a1a1a',
+        background: '#f5f5f5',
         resizeTo: window,
+        antialias: true, // Enable antialiasing for smoother edges
+        resolution: window.devicePixelRatio || 1, // Handle high DPI screens
+        autoDensity: true,
       });
 
       // The application will create a canvas element for you that you

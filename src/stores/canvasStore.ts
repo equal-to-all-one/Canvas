@@ -132,12 +132,16 @@ export const useCanvasStore = defineStore('canvas', {
       }
     },
 
-    addTextElement() {
+    addTextElement(x?: number, y?: number) {
+      // Add a random offset to prevent stacking if no position provided
+      const offset = Math.random() * 100 - 50; // -50 to +50
+      console.log('Adding text element with offset:', offset);
+      
       const newElement: CanvasElement = {
         id: uuidv4(),
         type: 'text',
-        x: 400,
-        y: 300,
+        x: x ?? (400 + offset),
+        y: y ?? (300 + offset),
         width: 200,
         height: 30,
         rotation: 0,
@@ -208,24 +212,54 @@ export const useCanvasStore = defineStore('canvas', {
       this.pasteCount = 1;
     },
 
-    pasteFromClipboard() {
+    pasteFromClipboard(cursorPosition?: { x: number, y: number }) {
       const clipboardData = localStorage.getItem('canvas-clipboard');
       if (!clipboardData) return;
 
       try {
         const elements = JSON.parse(clipboardData) as CanvasElement[];
-        if (!Array.isArray(elements)) return;
+        console.log('Pasting elements:', elements.length, 'Cursor:', cursorPosition);
+        if (!Array.isArray(elements) || elements.length === 0) return;
 
-        // Offset increases with each paste: 20px, 40px, 60px...
-        const offset = 20 * this.pasteCount;
+        let dx = 0;
+        let dy = 0;
+
+        if (cursorPosition) {
+          // Calculate bounding box of copied elements
+          let minX = Infinity, minY = Infinity;
+          let maxX = -Infinity, maxY = -Infinity;
+          
+          elements.forEach(el => {
+            minX = Math.min(minX, el.x);
+            minY = Math.min(minY, el.y);
+            maxX = Math.max(maxX, el.x + el.width);
+            maxY = Math.max(maxY, el.y + el.height);
+          });
+
+          const centerX = (minX + maxX) / 2;
+          const centerY = (minY + maxY) / 2;
+
+          // Convert screen cursor position to world coordinates
+          const worldX = (cursorPosition.x - this.pan.x) / this.zoom;
+          const worldY = (cursorPosition.y - this.pan.y) / this.zoom;
+
+          console.log('Paste World Pos:', worldX, worldY, 'Center:', centerX, centerY);
+
+          dx = worldX - centerX;
+          dy = worldY - centerY;
+        } else {
+          // Default offset behavior
+          dx = 20 * this.pasteCount;
+          dy = 20 * this.pasteCount;
+        }
 
         const newElements = elements.map(el => {
           // @ts-ignore
           const newEl: CanvasElement = {
             ...el,
             id: uuidv4(),
-            x: el.x + offset,
-            y: el.y + offset,
+            x: el.x + dx,
+            y: el.y + dy,
             isSelected: true // Select the new elements
           };
           return newEl;
@@ -240,8 +274,10 @@ export const useCanvasStore = defineStore('canvas', {
         // Select new elements
         this.selectedElementIds = newElements.map(el => el.id);
         
-        // Increment paste count for next paste
-        this.pasteCount++;
+        // Increment paste count for next paste (only if not using cursor position)
+        if (!cursorPosition) {
+          this.pasteCount++;
+        }
 
       } catch (e) {
         console.error('Failed to paste from clipboard', e);

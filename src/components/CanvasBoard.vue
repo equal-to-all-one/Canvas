@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, watchEffect, computed } from 'vue';
-import { Graphics, Sprite, Texture, ColorMatrixFilter, BlurFilter, Filter, Assets, Container, Text, TextStyle } from 'pixi.js';
+import { Graphics, Sprite, Texture, ColorMatrixFilter, BlurFilter, Filter, Assets, Container, Text, TextStyle, Rectangle } from 'pixi.js';
 import { useCanvasRenderer } from '@/composables/useCanvasRenderer';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { screenToWorld, worldToScreen } from '@/utils/coordinates';
@@ -38,6 +38,8 @@ const isEditingText = ref(false);
 const editingElementId = ref<string | null>(null);
 const editingElement = ref<TextElement | null>(null);
 const editorPosition = ref({ top: 0, left: 0, width: 0, height: 0, fontSize: 16, fontFamily: 'Arial', color: '#000000' });
+
+const cursorTooltipPosition = ref({ x: 0, y: 0 });
 
 const floatingToolbarPosition = ref({ top: 0, left: 0 });
 
@@ -87,6 +89,8 @@ watch(
     if (!app.value) return;
     if (['rectangle', 'circle', 'rounded-rectangle', 'triangle'].includes(newTool)) {
       app.value.canvas.style.cursor = 'crosshair';
+    } else if (newTool === 'text') {
+      app.value.canvas.style.cursor = 'text';
     } else {
       app.value.canvas.style.cursor = 'default';
     }
@@ -111,6 +115,16 @@ const renderElements = () => {
   // Handle stage pointer down for creation
   app.value.stage.off('pointerdown'); // Remove previous listeners to avoid duplicates if re-rendering
   app.value.stage.on('pointerdown', (e) => {
+    if (canvasStore.activeTool === 'text') {
+      e.stopPropagation();
+      if (app.value) {
+        const worldPos = screenToWorld({ x: e.global.x, y: e.global.y }, app.value.stage);
+        canvasStore.addTextElement(worldPos.x, worldPos.y);
+        canvasStore.setActiveTool('select');
+      }
+      return;
+    }
+
     if (['rectangle', 'circle', 'rounded-rectangle', 'triangle'].includes(canvasStore.activeTool)) {
       e.stopPropagation();
       isCreating.value = true;
@@ -127,6 +141,12 @@ const renderElements = () => {
   });
 
   // Re-draw all elements
+  // Optimization: Use a Map to cache Pixi objects and update them instead of recreating
+  // For now, we clear and redraw which is simple but less efficient.
+  // To meet the < 3s requirement for 100 elements, this is sufficient.
+  // However, to support smooth dragging without store updates, we need to access these objects.
+  // Let's attach the ID to the display object so we can find it later.
+  
   canvasStore.elements.forEach((element) => {
     // Skip rendering if this element is currently being edited
     if (element.id === editingElementId.value) return;
@@ -157,6 +177,9 @@ const renderElements = () => {
       // Since we ensure asset is loaded, texture should have correct dimensions
       sprite.width = element.width;
       sprite.height = element.height;
+      
+      // Ensure hitArea covers the whole image
+      sprite.hitArea = new Rectangle(0, 0, element.width, element.height);
 
       // Apply filters
       const pixiFilters: Filter[] = [];
@@ -242,6 +265,9 @@ const renderElements = () => {
              canvasStore.updateTextElement(element.id, { width: currentX, height: maxHeight });
          }, 0);
       }
+      
+      // Ensure hitArea covers the whole text block (even transparent areas)
+      container.hitArea = new Rectangle(0, 0, currentX, maxHeight);
 
       // Selection highlight (supports temporary marquee selection)
       const isEffectivelySelected = element.isSelected || tempSelectionIds.value.has(element.id);
@@ -266,9 +292,11 @@ const renderElements = () => {
         graphics.rect(0, 0, element.width, element.height);
         graphics.fill({ color: element.fillColor, alpha: element.opacity });
       } else if (element.type === 'circle') {
-        // Draw circle centered in the bounding box
-        const radius = element.width / 2;
-        graphics.circle(radius, radius, radius);
+        // Draw ellipse centered in the bounding box
+        // Use ellipse to support non-uniform scaling (e.g. dragging top/bottom handles)
+        const rx = element.width / 2;
+        const ry = element.height / 2;
+        graphics.ellipse(rx, ry, rx, ry);
         graphics.fill({ color: element.fillColor, alpha: element.opacity });
       } else if (element.type === 'rounded-rectangle') {
         graphics.roundRect(0, 0, element.width, element.height, element.borderRadius);
@@ -289,6 +317,9 @@ const renderElements = () => {
       
       // Always draw the element's actual stroke
       graphics.stroke({ width: element.strokeWidth, color: element.strokeColor });
+
+      // Ensure hitArea covers the bounding box
+      graphics.hitArea = new Rectangle(0, 0, element.width, element.height);
 
       if (isEffectivelySelected) {
         // Draw selection highlight as a separate child to avoid overwriting the element's stroke
@@ -424,55 +455,52 @@ watch(
   }
 );
 
-const addRandomRect = () => {
-  const x = Math.random() * (window.innerWidth - 100);
-  const y = Math.random() * (window.innerHeight - 100);
-  const color = '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
 
-  canvasStore.addElement({
-    type: 'rectangle',
-    x,
-    y,
-    width: 100 + Math.random() * 100,
-    height: 80 + Math.random() * 80,
-    rotation: 0,
-    fillColor: color,
-    strokeColor: '#ffffff',
-    strokeWidth: 2,
-    opacity: 1,
-    isSelected: false,
-  });
-};
 
 const handleWheel = (event: WheelEvent) => {
   if (!app.value) return;
   event.preventDefault();
 
-  const scaleFactor = event.deltaY > 0 ? 0.9 : 1.1;
-  let newScale = app.value.stage.scale.x * scaleFactor;
+  if (event.ctrlKey || event.metaKey) {
+    // Zoom
+    const scaleFactor = event.deltaY > 0 ? 0.9 : 1.1;
+    let newScale = app.value.stage.scale.x * scaleFactor;
 
-  // Clamp scale
-  newScale = Math.max(0.1, Math.min(newScale, 5));
+    // Clamp scale
+    newScale = Math.max(0.1, Math.min(newScale, 5));
 
-  // Calculate the world position of the mouse before scaling
-  const worldPos = screenToWorld({ x: event.clientX, y: event.clientY }, app.value.stage);
+    // Calculate the world position of the mouse before scaling
+    const worldPos = screenToWorld({ x: event.clientX, y: event.clientY }, app.value.stage);
 
-  // Update scale
-  app.value.stage.scale.set(newScale);
+    // Update scale
+    app.value.stage.scale.set(newScale);
 
-  // Adjust position to keep the world point under the mouse
-  const newStageX = event.clientX - worldPos.x * newScale;
-  const newStageY = event.clientY - worldPos.y * newScale;
+    // Adjust position to keep the world point under the mouse
+    const newStageX = event.clientX - worldPos.x * newScale;
+    const newStageY = event.clientY - worldPos.y * newScale;
 
-  app.value.stage.position.set(newStageX, newStageY);
+    app.value.stage.position.set(newStageX, newStageY);
 
-  // Sync to store
-  canvasStore.setZoom(newScale);
-  canvasStore.setPan({ x: newStageX, y: newStageY });
+    // Sync to store
+    canvasStore.setZoom(newScale);
+    canvasStore.setPan({ x: newStageX, y: newStageY });
+  } else {
+    // Pan (Scroll)
+    app.value.stage.position.x -= event.deltaX;
+    app.value.stage.position.y -= event.deltaY;
+    
+    // Sync to store
+    canvasStore.setPan({ x: app.value.stage.position.x, y: app.value.stage.position.y });
+  }
 };
 
 const handlePointerDown = (event: PointerEvent) => {
   if (event.button === 1) { // Middle mouse button
+    // Optional: Keep middle mouse pan as alternative? Or remove?
+    // User asked to change to Left Click Empty.
+    // Let's keep it as a secondary option or remove if strict.
+    // Let's remove to be clean and follow "Refactor" instruction.
+    // Actually, keeping it doesn't hurt, but let's focus on the requested change.
     isPanning.value = true;
     lastPanPoint.value = { x: event.clientX, y: event.clientY };
     event.preventDefault();
@@ -483,28 +511,48 @@ const handlePointerDown = (event: PointerEvent) => {
     if (isEditingText.value) return;
 
     if (app.value) {
-       // If we are NOT dragging an element (which means we didn't hit an element), start marquee selection.
-       // Note: Pixi event handlers run before this DOM handler and call stopPropagation when clicking an element,
-       // so this handler running implies the user clicked empty space.
-       if (!isDraggingElement.value && canvasStore.activeTool === 'select') {
-         // Begin selection-box drag
-         isDraggingSelectionBox.value = true;
-         selectionStartScreen.value = { x: event.clientX, y: event.clientY };
-         tempSelectionIds.value = new Set();
+       // If we are NOT dragging an element (which means we didn't hit an element)
+       if (!isDraggingElement.value) {
+         if (canvasStore.activeTool === 'select') {
+            // Logic:
+            // 1. If Shift is pressed -> Marquee Selection
+            // 2. If No Modifier -> Pan Canvas
+            
+            if (event.shiftKey) {
+                // Begin selection-box drag
+                isDraggingSelectionBox.value = true;
+                selectionStartScreen.value = { x: event.clientX, y: event.clientY };
+                tempSelectionIds.value = new Set();
 
-         // Create graphics overlay in world coordinates
-         selectionGraphic = new Graphics();
-         // Add to stage so it's visible above elements
-         app.value.stage.addChild(selectionGraphic);
-       } else if (!isDraggingElement.value) {
-         // simple click on empty space -> deselect
-         canvasStore.clearSelection();
+                // Create graphics overlay in world coordinates
+                selectionGraphic = new Graphics();
+                // Add to stage so it's visible above elements
+                app.value.stage.addChild(selectionGraphic);
+            } else {
+                // Pan Canvas
+                isPanning.value = true;
+                lastPanPoint.value = { x: event.clientX, y: event.clientY };
+                
+                // Also clear selection on empty click
+                canvasStore.clearSelection();
+            }
+         } else {
+             // Creating shape... handled by stage.on('pointerdown')?
+             // Wait, stage.on('pointerdown') handles creation.
+             // This DOM handler runs AFTER Pixi handlers.
+             // If we are creating, we shouldn't be here?
+             // Actually, creation logic is in stage.on('pointerdown').
+             // If activeTool is NOT select, we probably don't want to pan with left click?
+             // Or maybe we do? Usually creation tools don't pan on drag.
+         }
        }
     }
   }
 };
 
 const handlePointerMove = (event: PointerEvent) => {
+  cursorTooltipPosition.value = { x: event.clientX, y: event.clientY };
+
   if (isCreating.value && app.value && ghostGraphic) {
     const currentWorldPoint = screenToWorld({ x: event.clientX, y: event.clientY }, app.value.stage);
     
@@ -823,9 +871,6 @@ const handleTextUpdate = (content: TextSpan[]) => {
 
 <template>
   <div class="board-wrapper">
-    <div class="toolbar">
-      <button @click="addRandomRect">Add Random Rect</button>
-    </div>
     <div 
       ref="canvasContainer" 
       class="canvas-board"
@@ -851,6 +896,14 @@ const handleTextUpdate = (content: TextSpan[]) => {
       :position="floatingToolbarPosition"
     />
     
+    <div 
+      v-if="canvasStore.activeTool === 'text'"
+      class="cursor-tooltip"
+      :style="{ top: cursorTooltipPosition.y + 15 + 'px', left: cursorTooltipPosition.x + 15 + 'px' }"
+    >
+      点击插入文本框
+    </div>
+
     <Transformer />
   </div>
 </template>
@@ -862,14 +915,16 @@ const handleTextUpdate = (content: TextSpan[]) => {
   height: 100vh;
 }
 
-.toolbar {
-  position: absolute;
-  top: 20px;
-  left: 20px;
-  z-index: 100;
-  background: rgba(255, 255, 255, 0.1);
-  padding: 10px;
-  border-radius: 8px;
+.cursor-tooltip {
+  position: fixed;
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 2000;
+  white-space: nowrap;
 }
 
 .canvas-board {

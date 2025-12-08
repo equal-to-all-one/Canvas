@@ -1,25 +1,27 @@
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  /* Figma-like Theme Colors */
+  --color-bg: #F5F5F5;
+  --color-surface: #FFFFFF;
+  --color-surface-hover: #F0F0F0;
+  --color-border: #E5E5E5;
+  --color-text: #333333;
+  --color-text-secondary: #888888;
+  --color-primary: #18A0FB;
+  --color-primary-hover: #0D8CE0;
+  --color-selection: rgba(24, 160, 251, 0.1);
+  --color-danger: #F24822;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+
+  /* Typography */
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
   line-height: 1.5;
-  font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+  color: var(--color-text);
+  background-color: var(--color-bg);
 }
 
 body {
@@ -28,24 +30,35 @@ body {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+  background-color: var(--color-bg);
 }
 
 #app {
   width: 100%;
   height: 100%;
-  margin: 0;
-  padding: 0;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+/* Reset buttons */
+button {
+  font-family: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #CCCCCC;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #BBBBBB;
 }

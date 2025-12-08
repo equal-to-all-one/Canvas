@@ -15,7 +15,7 @@ const style = computed(() => ({
   left: `${props.position.left}px`,
   position: 'absolute' as const,
   zIndex: 100,
-  transform: 'translate(10px, 0)', // Shift right by 10px
+  transform: 'translate(16px, -50%)', // Shift right by 16px, center vertically relative to point
 }));
 
 // Shape Helpers
@@ -48,73 +48,105 @@ const updateImageFilters = (key: string, value: any) => {
 </script>
 
 <template>
-  <div class="floating-toolbar" :style="style" @mousedown.stop @pointerdown.stop>
+  <div class="floating-panel" :style="style" @mousedown.stop @pointerdown.stop>
     
     <!-- Shape Tools -->
-    <div v-if="isShape" class="toolbar-section">
-      <div class="control-group">
-        <label>Fill</label>
-        <div class="color-picker-wrapper">
+    <div v-if="isShape" class="panel-section">
+      <div class="control-item">
+        <div class="color-preview" :style="{ backgroundColor: shapeElement.fillColor }">
           <input type="color" :value="shapeElement.fillColor" @input="(e) => updateShape('fillColor', (e.target as HTMLInputElement).value)" />
         </div>
+        <span class="label">Fill</span>
       </div>
-      <div class="control-group">
-        <label>Stroke</label>
-        <div class="color-picker-wrapper">
+      
+      <div class="divider"></div>
+
+      <div class="control-item">
+        <div class="color-preview border-preview" :style="{ borderColor: shapeElement.strokeColor }">
           <input type="color" :value="shapeElement.strokeColor" @input="(e) => updateShape('strokeColor', (e.target as HTMLInputElement).value)" />
         </div>
+        <input 
+          type="number" 
+          class="mini-input" 
+          :value="shapeElement.strokeWidth" 
+          @input="(e) => updateShape('strokeWidth', parseFloat((e.target as HTMLInputElement).value))" 
+          min="0" 
+        />
       </div>
-      <div class="control-group">
-        <label>Width</label>
-        <input type="number" class="number-input" :value="shapeElement.strokeWidth" @input="(e) => updateShape('strokeWidth', parseFloat((e.target as HTMLInputElement).value))" min="0" />
-      </div>
-      <div v-if="element.type === 'rounded-rectangle'" class="control-group">
-        <label>Radius</label>
-        <input type="number" class="number-input" :value="(element as RoundedRectangleElement).borderRadius" @input="(e) => updateShape('borderRadius', parseFloat((e.target as HTMLInputElement).value))" min="0" />
-      </div>
+
+      <template v-if="element.type === 'rounded-rectangle'">
+        <div class="divider"></div>
+        <div class="control-item">
+          <span class="icon">R</span>
+          <input 
+            type="number" 
+            class="mini-input" 
+            :value="(element as RoundedRectangleElement).borderRadius" 
+            @input="(e) => updateShape('borderRadius', parseFloat((e.target as HTMLInputElement).value))" 
+            min="0" 
+          />
+        </div>
+      </template>
     </div>
 
     <!-- Text Tools -->
-    <div v-if="isText" class="toolbar-section vertical">
+    <div v-if="isText" class="panel-section vertical">
       <div class="row">
-        <div class="control-group">
-          <label>Size</label>
-          <input type="number" class="number-input" :value="textElement.fontSize" @input="(e) => updateText('fontSize', parseFloat((e.target as HTMLInputElement).value))" min="8" />
-        </div>
-        <div class="control-group">
-          <label>Color</label>
-          <div class="color-picker-wrapper">
+        <select 
+          class="font-select"
+          :value="textElement.fontFamily"
+          @change="(e) => updateText('fontFamily', (e.target as HTMLSelectElement).value)"
+        >
+          <option value="Arial">Arial</option>
+          <option value="Helvetica">Helvetica</option>
+          <option value="Times New Roman">Times New Roman</option>
+          <option value="Courier New">Courier New</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Verdana">Verdana</option>
+          <option value="Inter">Inter</option>
+        </select>
+      </div>
+      <div class="row">
+        <input 
+          type="number" 
+          class="mini-input" 
+          :value="textElement.fontSize" 
+          @input="(e) => updateText('fontSize', parseFloat((e.target as HTMLInputElement).value))" 
+          min="8" 
+        />
+        <div class="color-group">
+          <div class="color-preview" :style="{ backgroundColor: textElement.color }" title="Text Color">
             <input type="color" :value="textElement.color" @input="(e) => updateText('color', (e.target as HTMLInputElement).value)" />
           </div>
-        </div>
-        <div class="control-group">
-          <label>Bg</label>
-          <div class="color-picker-wrapper">
+          <div class="color-preview" :style="{ backgroundColor: textElement.backgroundColor === 'transparent' ? '#fff' : textElement.backgroundColor, backgroundImage: textElement.backgroundColor === 'transparent' ? 'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)' : 'none', backgroundSize: '8px 8px', backgroundPosition: '0 0, 0 4px, 4px -4px, -4px 0px' }" title="Background Color">
             <input type="color" :value="textElement.backgroundColor === 'transparent' ? '#ffffff' : textElement.backgroundColor" @input="(e) => updateText('backgroundColor', (e.target as HTMLInputElement).value)" />
           </div>
         </div>
       </div>
-      <div class="row style-buttons">
+      
+      <div class="row button-group">
         <button :class="{ active: textElement.content.some(s => s.bold) }" @click="toggleFormat('bold')" title="Bold">B</button>
         <button :class="{ active: textElement.content.some(s => s.italic) }" @click="toggleFormat('italic')" title="Italic">I</button>
         <button :class="{ active: textElement.content.some(s => s.underline) }" @click="toggleFormat('underline')" title="Underline">U</button>
-        <button :class="{ active: textElement.content.some(s => s.strikethrough) }" @click="toggleFormat('strikethrough')" title="Strike">S</button>
+        <button :class="{ active: textElement.content.some(s => s.strikethrough) }" @click="toggleFormat('strikethrough')" title="Strikethrough" style="text-decoration: line-through;">S</button>
       </div>
     </div>
 
     <!-- Image Tools -->
-    <div v-if="isImage" class="toolbar-section vertical">
+    <div v-if="isImage" class="panel-section vertical">
       <div class="control-row">
-        <label>Blur</label>
+        <span class="label">Blur</span>
         <input type="range" :value="imageElement.filters.blur" @input="(e) => updateImageFilters('blur', parseFloat((e.target as HTMLInputElement).value))" min="0" max="20" step="1" />
       </div>
       <div class="control-row">
-        <label>Bright</label>
+        <span class="label">Bright</span>
         <input type="range" :value="imageElement.filters.brightness" @input="(e) => updateImageFilters('brightness', parseFloat((e.target as HTMLInputElement).value))" min="0" max="2" step="0.1" />
       </div>
-      <div class="control-row checkbox-row">
-        <label>Grayscale</label>
-        <input type="checkbox" :checked="imageElement.filters.grayscale" @change="(e) => updateImageFilters('grayscale', (e.target as HTMLInputElement).checked)" />
+      <div class="control-row">
+        <label class="checkbox-label">
+          <input type="checkbox" :checked="imageElement.filters.grayscale" @change="(e) => updateImageFilters('grayscale', (e.target as HTMLInputElement).checked)" />
+          Grayscale
+        </label>
       </div>
     </div>
 
@@ -122,120 +154,174 @@ const updateImageFilters = (key: string, value: any) => {
 </template>
 
 <style scoped>
-.floating-toolbar {
-  position: absolute;
-  background: #fff;
-  padding: 12px;
+.floating-panel {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  z-index: 1000;
-  font-family: 'Segoe UI', sans-serif;
-  font-size: 14px;
-  color: #333;
-  pointer-events: auto;
-  /* Removed min-width to allow shrinking */
-}
-
-.toolbar-section {
+  box-shadow: var(--shadow-lg);
+  padding: 8px;
   display: flex;
-  gap: 16px;
-  align-items: center;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 140px;
 }
 
-.toolbar-section.vertical {
+.panel-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-section.vertical {
   flex-direction: column;
   align-items: stretch;
-  gap: 12px;
+}
+
+.control-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.divider {
+  width: 1px;
+  height: 20px;
+  background-color: var(--color-border);
+}
+
+.color-preview {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.color-preview.border-preview {
+  background-color: transparent;
+  border-width: 2px;
+}
+
+.color-preview input[type="color"] {
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.mini-input {
+  width: 40px;
+  height: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 12px;
+  text-align: center;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
+
+.mini-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.font-select {
+  width: 100%;
+  height: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 12px;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+}
+
+.font-select:focus {
+  border-color: var(--color-primary);
+}
+
+.color-group {
+  display: flex;
+  gap: 4px;
+}
+
+.label {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.icon {
+  font-size: 12px;
+  font-weight: bold;
+  color: var(--color-text-secondary);
 }
 
 .row {
   display: flex;
-  gap: 16px;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.button-group {
+  background-color: var(--color-bg);
+  border-radius: 4px;
+  padding: 2px;
+  display: flex;
   justify-content: space-between;
 }
 
-.control-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: center;
+.button-group button {
+  flex: 1;
+  border: none;
+  background: transparent;
+  border-radius: 3px;
+  padding: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.button-group button:hover {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.button-group button.active {
+  background-color: var(--color-surface);
+  color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
 }
 
 .control-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
 }
 
-.checkbox-row {
-  justify-content: flex-start;
-}
-
-label {
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
-  color: #666;
-  font-weight: 600;
-}
-
-.number-input {
-  width: 50px;
-  padding: 6px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  text-align: center;
-  font-size: 14px;
-}
-
-.color-picker-wrapper {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  overflow: hidden;
-  border: 1px solid #ddd;
-  cursor: pointer;
-}
-
-input[type="color"] {
-  width: 150%;
-  height: 150%;
-  margin: -25%;
-  padding: 0;
-  border: none;
+  color: var(--color-text);
   cursor: pointer;
 }
 
 input[type="range"] {
-  width: 100px;
-}
-
-.style-buttons {
-  display: flex;
-  gap: 4px;
-  justify-content: center;
-  background: #f5f5f5;
-  padding: 4px;
-  border-radius: 4px;
-}
-
-.style-buttons button {
-  border: none;
-  background: transparent;
-  padding: 4px 8px;
-  border-radius: 3px;
-  cursor: pointer;
-  font-weight: bold;
-  color: #555;
-}
-
-.style-buttons button:hover {
-  background: #e0e0e0;
-}
-
-.style-buttons button.active {
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-  color: #000;
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-border);
+  outline: none;
 }
 </style>

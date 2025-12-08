@@ -9,7 +9,7 @@ const isResizing = ref(false);
 const resizeHandle = ref<string | null>(null);
 const startMousePos = ref({ x: 0, y: 0 });
 const startBounds = ref({ x: 0, y: 0, width: 0, height: 0 });
-const startElementsState = ref<Map<string, { x: number, y: number, width: number, height: number }>>(new Map());
+const startElementsState = ref<Map<string, { x: number, y: number, width: number, height: number, fontSize?: number }>>(new Map());
 
 const screenBounds = computed(() => {
   const getBounds = store.selectionBoundingBox; // Access the getter
@@ -32,18 +32,8 @@ const screenBounds = computed(() => {
 });
 
 const isResizable = computed(() => {
-  // If any selected element is text, disable resizing
-  // Or if you want to be more specific: if selection contains ONLY text, disable.
-  // The user said "text box should not be scalable".
-  // If we have a mixed selection (Rect + Text), scaling the Rect is fine, but what about Text?
-  // Usually mixed selection scaling is allowed, but Text just moves.
-  // But our current implementation scales EVERYTHING.
-  // So to be safe and follow "text box should not be scalable", let's disable if ANY text is selected.
-  // Or better: check if ALL are text.
-  
-  // Let's check if the selection contains any text element.
-  const hasText = store.selectedElements.some(el => el.type === 'text');
-  return !hasText;
+  // Allow resizing even if text is selected
+  return store.selectedElements.length > 0;
 });
 
 const startResize = (handle: string, event: MouseEvent) => {
@@ -67,7 +57,8 @@ const startResize = (handle: string, event: MouseEvent) => {
       x: el.x,
       y: el.y,
       width: el.width,
-      height: el.height
+      height: el.height,
+      fontSize: el.type === 'text' ? (el as any).fontSize : undefined
     });
   });
 
@@ -136,12 +127,20 @@ const handleResizeMove = (event: MouseEvent) => {
     const newW = startState.width * scaleX;
     const newH = startState.height * scaleY;
 
-    store.updateElementTransform(id, {
+    const updates: any = {
       x: newX,
       y: newY,
       width: newW,
       height: newH
-    });
+    };
+
+    if (startState.fontSize !== undefined) {
+      // Scale font size based on vertical scaling
+      // This mimics "Scale" behavior for text
+      updates.fontSize = Math.max(4, startState.fontSize * scaleY);
+    }
+
+    store.updateElementTransform(id, updates);
   });
 };
 
