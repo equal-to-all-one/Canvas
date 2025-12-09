@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, watchEffect, computed } from 'vue';
+import { ref, watch, watchEffect, computed } from 'vue';
 import { Graphics, Sprite, Texture, ColorMatrixFilter, BlurFilter, Filter, Assets, Container, Text, TextStyle, Rectangle } from 'pixi.js';
 import { useCanvasRenderer } from '@/composables/useCanvasRenderer';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -167,21 +167,19 @@ const renderElements = () => {
       }
 
       const texture = Texture.from(element.src);
+      
+      // Use a Container to wrap the sprite, allowing for consistent hitArea and selection highlight
+      const container = new Container();
+      container.position.set(element.x, element.y);
+      container.rotation = element.rotation;
+
       const sprite = new Sprite(texture);
       
-      // console.log(`[DEBUG] Rendering image. Width: ${texture.width}`);
-
-      sprite.position.set(element.x, element.y);
-      sprite.rotation = element.rotation;
-
-      // Since we ensure asset is loaded, texture should have correct dimensions
+      // Set sprite dimensions (this applies scale to the sprite)
       sprite.width = element.width;
       sprite.height = element.height;
       
-      // Ensure hitArea covers the whole image
-      sprite.hitArea = new Rectangle(0, 0, element.width, element.height);
-
-      // Apply filters
+      // Apply filters to the sprite
       const pixiFilters: Filter[] = [];
       
       if (element.filters.brightness !== 1 || element.filters.grayscale) {
@@ -202,7 +200,22 @@ const renderElements = () => {
       }
 
       sprite.filters = pixiFilters;
-      displayObject = sprite;
+      container.addChild(sprite);
+
+      // Ensure hitArea covers the whole image (Container is unscaled, so we use element dimensions)
+      container.hitArea = new Rectangle(0, 0, element.width, element.height);
+
+      // Selection highlight
+      const isEffectivelySelected = element.isSelected || tempSelectionIds.value.has(element.id);
+      if (isEffectivelySelected) {
+        const selectionHighlight = new Graphics();
+        const padding = 4;
+        selectionHighlight.rect(-padding, -padding, element.width + padding * 2, element.height + padding * 2);
+        selectionHighlight.stroke({ width: 1, color: '#00FFFF' });
+        container.addChild(selectionHighlight);
+      }
+
+      displayObject = container;
     } else if (element.type === 'text') {
       const container = new Container();
       container.position.set(element.x, element.y);
@@ -616,7 +629,7 @@ const handlePointerMove = (event: PointerEvent) => {
     // We need to access the Pixi objects. Since we clear stage on render, we don't have a persistent map.
     // Let's iterate stage children.
     
-    app.value.stage.children.forEach((child: any) => {
+    app.value.stage.children.forEach(() => {
        // We need a way to link child to element ID. 
        // We didn't attach ID to displayObject. Let's assume we can't easily do it without refactor.
        // Wait, we can attach ID to displayObject in renderElements.
@@ -891,7 +904,7 @@ const handleTextUpdate = (content: TextSpan[]) => {
     />
     
     <FloatingToolbar
-      v-if="singleSelectedElement"
+      v-if="singleSelectedElement && !isDraggingElement"
       :element="singleSelectedElement"
       :position="floatingToolbarPosition"
     />

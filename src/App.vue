@@ -41,7 +41,7 @@ const handleKeyDown = (event: KeyboardEvent) => {
   }
 };
 
-const handlePaste = (event: ClipboardEvent) => {
+const handlePaste = () => {
   // Only handle if not in an input
   const activeElement = document.activeElement;
   const isInputActive = activeElement instanceof HTMLInputElement || 
