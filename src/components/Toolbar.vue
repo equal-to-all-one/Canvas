@@ -52,6 +52,9 @@ const handleFileChange = (event: Event) => {
                 isSelected: false,
                 filters: { grayscale: false, blur: 0, brightness: 1 }
             };
+            // Use addImageElement action if available or addElement
+            // But addElement expects DistributiveOmit<CanvasElement, 'id'>
+            // Let's use store.addElement which handles ID generation
             store.addElement(newImageElement);
         };
         img.src = dataUrl;
@@ -59,6 +62,7 @@ const handleFileChange = (event: Event) => {
     };
     reader.readAsDataURL(file);
   }
+  // Reset value to allow selecting the same file again
   if (target) target.value = '';
 };
 </script>

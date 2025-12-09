@@ -144,17 +144,17 @@ interface CanvasState {
 **实现**: 在 `CanvasBoard.vue` 的渲染循环中，根据 `element.filters` 状态动态挂载/卸载 Filter 对象。
 
 ## 6. 持久化与剪贴板策略
-**方案**: **LocalStorage + JSON 序列化**
+**方案**: **IndexedDB**
 
 ### 6.1 数据持久化 (Session Recovery)
 - **机制**: 利用 Pinia 的 `$subscribe` 监听全局状态变更。
-- **存储**: 将 `elements` 数组序列化为 JSON 字符串，存储于 `localStorage` 的 `canvas-data` 键中。
+- **存储**: 将 `elements` 数组存储于 `IndexedDB` 的 `canvas-data` store 中，以突破 `localStorage` 的容量限制。
 - **恢复策略**: 应用启动时检测是否存在历史数据。若存在，弹出对话框询问用户：“恢复上次未保存的画布”还是“创建新画布”。
-  - **恢复**: 反序列化数据，还原画布状态。
-  - **新建**: 清空 `localStorage`，初始化空白画布。
+  - **恢复**: 从 `IndexedDB` 读取数据，还原画布状态。
+  - **新建**: 清空 `IndexedDB` 中的画布数据，初始化空白画布。
 
 ### 6.2 剪贴板 (Clipboard)
-- **持久化**: 复制操作将选中元素序列化存入 `localStorage` (`canvas-clipboard`)，支持跨页面刷新粘贴。
+- **持久化**: 复制操作将选中元素存入 `IndexedDB` (`clipboard` key)，支持跨页面刷新粘贴。
 - **智能粘贴**:
   - **多重粘贴**: 维护 `pasteCount`，连续粘贴时自动增加偏移量 (20px)，形成层叠效果。
   - **鼠标跟随**: 粘贴内容自动定位到鼠标指针中心（若有鼠标位置上下文），提升交互体验。
@@ -222,5 +222,13 @@ interface CanvasState {
 - **高亮样式**: 选中框（Selection Box）与元素本身保留一定间距（Padding），或使用细线框，确保用户能清晰看到元素自身的边框颜色。
 - **圆形缩放**: 修复圆形仅能横向缩放的 Bug，强制锁定纵横比或正确映射纵向拖拽增量。
 
+### 8.7 本地存储容量限制 (QuotaExceededError)
+**问题描述**：
+原方案使用 `localStorage` 存储画布数据。由于 `localStorage` 的容量限制通常仅为 5MB，当用户在画布中插入多张高分辨率图片（Base64 编码）时，序列化后的 JSON 数据迅速超出限额，导致浏览器抛出 `QuotaExceededError`，造成自动保存失败甚至应用崩溃。
+**解决方案**：
+- **迁移至 IndexedDB**：将持久化层从 `localStorage` 迁移到 `IndexedDB`。IndexedDB 支持存储大量结构化数据（通常可达数百 MB 或更多），完美解决了图片存储的容量瓶颈。
+- **异步封装**：封装 `src/utils/storage.ts` 工具类，提供基于 Promise 的异步读写接口 (`saveCanvasData`, `loadCanvasData`)，适配 IndexedDB 的异步特性。
+- **剪贴板升级**：同步将剪贴板功能（复制/粘贴）的存储后端也迁移至 IndexedDB，确保用户可以跨会话复制粘贴包含大图的复杂元素组合。
+
 ---
-*文档最后更新时间: 2025-12-09*
+*文档最后更新时间: 2025-12-10*

@@ -11,6 +11,7 @@ import type { TextElement, TextSpan } from '@/types/element';
 
 const canvasContainer = ref<HTMLDivElement | null>(null);
 const canvasStore = useCanvasStore();
+const loadedImageAssets = new Set<string>();
 
 // Initialize the PixiJS renderer
 const { app } = useCanvasRenderer(canvasContainer);
@@ -156,14 +157,14 @@ const renderElements = () => {
     if (element.type === 'image') {
       if (!element.src) return;
 
-      // Check if asset is loaded
-      if (!Assets.cache.has(element.src)) {
-        console.log(`[DEBUG] Asset not in cache, loading: ${element.src.substring(0, 30)}...`);
+      if (!loadedImageAssets.has(element.src)) {
         Assets.load(element.src).then(() => {
-            console.log("[DEBUG] Asset loaded, triggering re-render");
+            loadedImageAssets.add(element.src);
             renderElements();
-        }).catch(err => console.error("Failed to load texture:", err));
-        return; // Skip rendering this frame
+        }).catch(() => {
+            loadedImageAssets.add(element.src);
+        });
+        return;
       }
 
       const texture = Texture.from(element.src);
@@ -344,9 +345,38 @@ const renderElements = () => {
         selectionHighlight.rect(-padding, -padding, element.width + padding * 2, element.height + padding * 2);
         selectionHighlight.stroke({ width: 1, color: '#00FFFF' });
         
-        graphics.addChild(selectionHighlight);
+        // In PixiJS v8, addChild is only available on Container.
+        // Graphics extends Container, so this is technically valid in TS, 
+        // but PixiJS v8 deprecation warning suggests avoiding adding children to Graphics if possible,
+        // or it might be that we should treat Graphics as leaf nodes for better practice.
+        // However, Graphics IS a Container in v8. The warning "Only Containers will be allowed to add children"
+        // usually appears if we try to add child to something that isn't a Container (like Sprite in v7?).
+        // Wait, the warning says "Only Containers will be allowed to add children in v8.0.0".
+        // Graphics inherits from Container in v8.
+        // The warning might be triggered if we are using an older pattern or if Graphics is intended to be a leaf.
+        // To be safe and clean, let's wrap the shape in a Container if we need to add children (highlight).
+        
+        // Refactoring to use Container wrapper for shapes as well would be consistent with Image/Text.
+        // But for now, let's just ignore the warning or check if we can draw the highlight on the same Graphics context?
+        // No, we want separate stroke.
+        
+        // Let's wrap it in a Container to fix the warning and be consistent.
+        const container = new Container();
+        container.position.set(element.x, element.y);
+        container.rotation = element.rotation;
+        
+        // Reset graphics position since it's now inside container
+        graphics.position.set(0, 0);
+        graphics.rotation = 0;
+        
+        container.addChild(graphics);
+        container.addChild(selectionHighlight);
+        
+        // Transfer interactivity to container
+        displayObject = container;
+      } else {
+        displayObject = graphics;
       }
-      displayObject = graphics;
     }
 
     // Make interactive

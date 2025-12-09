@@ -3,10 +3,11 @@ import { onMounted, onUnmounted, ref } from 'vue';
 import CanvasBoard from '@/components/CanvasBoard.vue';
 import Toolbar from '@/components/Toolbar.vue';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { saveCanvasData, loadCanvasData, clearCanvasData } from '@/utils/storage';
 
 const store = useCanvasStore();
 const showRestoreDialog = ref(false);
-const savedDataCache = ref<string | null>(null);
+const savedDataCache = ref<any | null>(null);
 const mousePosition = ref({ x: 0, y: 0 });
 
 const updateMousePosition = (e: MouseEvent) => {
@@ -54,45 +55,34 @@ const handlePaste = () => {
   store.pasteFromClipboard(mousePosition.value);
 };
 
-// Persistence: Auto-save to localStorage
+// Persistence: Auto-save to IndexedDB
 store.$subscribe((_mutation, state) => {
   // We only care about elements for persistence
-  localStorage.setItem('canvas-data', JSON.stringify(state.elements));
+  saveCanvasData(state.elements).catch(e => {
+    console.error('Failed to save canvas data to IndexedDB', e);
+  });
 });
 
 const handleRestore = () => {
   if (savedDataCache.value) {
-    try {
-      const elements = JSON.parse(savedDataCache.value);
-      if (Array.isArray(elements)) {
-        store.setElements(elements);
-      }
-    } catch (e) {
-      console.error('Failed to load canvas data', e);
+    if (Array.isArray(savedDataCache.value)) {
+      store.setElements(savedDataCache.value);
     }
   }
   showRestoreDialog.value = false;
 };
 
 const handleNewCanvas = () => {
-  localStorage.removeItem('canvas-data');
+  clearCanvasData();
   showRestoreDialog.value = false;
 };
 
-onMounted(() => {
+onMounted(async () => {
   // Check for saved data
-  const savedData = localStorage.getItem('canvas-data');
-  if (savedData) {
-    try {
-      const elements = JSON.parse(savedData);
-      // Only show dialog if there is actual data (not empty array)
-      if (Array.isArray(elements) && elements.length > 0) {
-        savedDataCache.value = savedData;
-        showRestoreDialog.value = true;
-      }
-    } catch (e) {
-      console.error('Failed to parse saved data', e);
-    }
+  const elements = await loadCanvasData();
+  if (elements && Array.isArray(elements) && elements.length > 0) {
+    savedDataCache.value = elements;
+    showRestoreDialog.value = true;
   }
 
   window.addEventListener('keydown', handleKeyDown);
