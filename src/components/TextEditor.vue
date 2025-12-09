@@ -1,9 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, nextTick } from 'vue';
 import type { TextElement, TextSpan } from '@/types/element';
-import { useCanvasStore } from '@/stores/canvasStore';
-import { worldToScreen } from '@/utils/coordinates';
-import { useCanvasRenderer } from '@/composables/useCanvasRenderer';
 
 const props = defineProps<{
   element: TextElement;
@@ -25,7 +22,6 @@ const emit = defineEmits<{
 }>();
 
 const editorRef = ref<HTMLDivElement | null>(null);
-const canvasStore = useCanvasStore();
 
 const convertSpansToHtml = (spans: TextSpan[]): string => {
   return spans.map(span => {

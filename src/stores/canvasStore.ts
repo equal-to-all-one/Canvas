@@ -6,6 +6,7 @@
 import { defineStore } from 'pinia';
 import { v4 as uuidv4 } from 'uuid';
 import type { CanvasElement, DistributiveOmit, TextElement } from '@/types/element';
+import { saveClipboard, loadClipboard } from '@/utils/storage';
 
 // 定义 Store 中 state 的数据结构
 interface CanvasState {
@@ -207,27 +208,24 @@ export const useCanvasStore = defineStore('canvas', {
     copyToClipboard() {
       const selected = this.selectedElements;
       if (selected.length === 0) return;
-      localStorage.setItem('canvas-clipboard', JSON.stringify(selected));
+      saveClipboard(selected).catch(e => console.error('Clipboard save failed', e));
       // Reset paste count on new copy
       this.pasteCount = 1;
     },
 
-    pasteFromClipboard(cursorPosition?: { x: number, y: number }) {
-      const clipboardData = localStorage.getItem('canvas-clipboard');
-      if (!clipboardData) return;
+    async pasteFromClipboard(cursorPosition?: { x: number, y: number }) {
+      const elements = await loadClipboard();
+      if (!elements || !Array.isArray(elements) || elements.length === 0) return;
 
-      try {
-        const elements = JSON.parse(clipboardData) as CanvasElement[];
-        console.log('Pasting elements:', elements.length, 'Cursor:', cursorPosition);
-        if (!Array.isArray(elements) || elements.length === 0) return;
+      console.log('Pasting elements:', elements.length, 'Cursor:', cursorPosition);
 
-        let dx = 0;
-        let dy = 0;
+      let dx = 0;
+      let dy = 0;
 
-        if (cursorPosition) {
-          // Calculate bounding box of copied elements
-          let minX = Infinity, minY = Infinity;
-          let maxX = -Infinity, maxY = -Infinity;
+      if (cursorPosition) {
+        // Calculate bounding box of copied elements
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
           
           elements.forEach(el => {
             minX = Math.min(minX, el.x);
@@ -278,10 +276,6 @@ export const useCanvasStore = defineStore('canvas', {
         if (!cursorPosition) {
           this.pasteCount++;
         }
-
-      } catch (e) {
-        console.error('Failed to paste from clipboard', e);
-      }
     },
   },
 
