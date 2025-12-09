@@ -5,7 +5,7 @@
  */
 import { defineStore } from 'pinia';
 import { v4 as uuidv4 } from 'uuid';
-import type { CanvasElement, DistributiveOmit, TextElement, TextSpan } from '@/types/element';
+import type { CanvasElement, DistributiveOmit, TextElement } from '@/types/element';
 
 // 定义 Store 中 state 的数据结构
 interface CanvasState {
